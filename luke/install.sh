@@ -1,0 +1,31 @@
+#!/bin/bash
+# Installs a built "T3 Code (Luke)" from ~/.t3-luke-build/ready once the app isn't running.
+set -euo pipefail
+
+WORK="$HOME/.t3-luke-build"
+APP_NAME="T3 Code (Luke)"
+READY="$WORK/ready/$APP_NAME.app"
+TARGET="/Applications/$APP_NAME.app"
+
+[ -d "$READY" ] || exit 0
+
+notify() {
+  osascript -e "display notification \"$1\" with title \"$APP_NAME\"" >/dev/null 2>&1 || true
+}
+
+if pgrep -f "$TARGET/Contents/MacOS/" >/dev/null; then
+  if [ ! -f "$WORK/ready/notified" ]; then
+    notify "Update $(cat "$WORK/ready/version") is ready. Quit the app to install it."
+    touch "$WORK/ready/notified"
+  fi
+  exit 0
+fi
+
+rm -rf "$TARGET.old"
+[ -d "$TARGET" ] && mv "$TARGET" "$TARGET.old"
+mv "$READY" "$TARGET"
+rm -rf "$TARGET.old"
+cp "$WORK/ready/commit" "$WORK/installed-commit"
+cp "$WORK/ready/version" "$WORK/installed-version"
+notify "Updated to $(cat "$WORK/ready/version")."
+rm -rf "$WORK/ready"
