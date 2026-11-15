@@ -281,6 +281,7 @@ import {
   SidebarSectionHeader,
   SidebarSectionPlaceholder,
 } from "./sidebar/SidebarListMarkers";
+import { SidebarNeedsYou, selectNeedsYouThreads } from "./sidebar/SidebarNeedsYou";
 
 function sameSidebarProviderEntries(
   left: ReadonlyMap<string, SidebarProviderEntry>,
@@ -3240,6 +3241,16 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         }
       >
         <SidebarGroup className="flex-1" role="presentation">
+          {isSearchingThreads ? null : (
+            <SidebarNeedsYou
+              threads={selectNeedsYouThreads(searchableThreads)}
+              activeThreadKey={routeThreadKey}
+              threadKey={threadShellKey}
+              onSelect={(thread) =>
+                void navigateToThread(scopeThreadRef(thread.environmentId, thread.id))
+              }
+            />
+          )}
           {isSearchingThreads ? (
             threadSearchResults.length > 0 ? (
               <TooltipProvider
