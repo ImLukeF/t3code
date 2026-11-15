@@ -179,7 +179,12 @@ export const readServerUsageLimits = Effect.fn("OpenCode2Client.usageLimits")(fu
         });
       }
     }
-    return { ...makeUsageLimits({ checkedAt, windows }), ...externalUsage };
+    return {
+      ...makeUsageLimits({ checkedAt, windows }),
+      // Go and Console limits belong to the workspace, so environments sharing it share one bar.
+      ...(workspace.id.trim() ? { credentialFingerprint: `workspace:${workspace.id.trim()}` } : {}),
+      ...externalUsage,
+    };
   }).pipe(
     Effect.timeout("5 seconds"),
     Effect.orElseSucceed(() =>
