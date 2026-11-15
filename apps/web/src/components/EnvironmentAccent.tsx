@@ -31,14 +31,18 @@ function useEnvironmentAccentColor(environmentId: EnvironmentId | null): string 
     : environmentAccentColor(environmentId, primaryEnvironmentId);
 }
 
-/** A light wash of the environment's colour over a row's own background; none for this machine. */
+/** A tinted-glass wash of the environment's colour over a row; none for this machine. */
 export function useEnvironmentTintStyle(
   environmentId: EnvironmentId | null,
 ): CSSProperties | undefined {
   const color = useEnvironmentAccentColor(environmentId);
   if (color === null) return undefined;
-  const wash = `color-mix(in srgb, ${color} 6%, transparent)`;
-  return { backgroundImage: `linear-gradient(${wash}, ${wash})` };
+  const tint = (percent: number) => `color-mix(in srgb, ${color} ${percent}%, transparent)`;
+  // Tinted glass: a soft diagonal wash, a faint edge in the same hue and a thin top highlight.
+  return {
+    backgroundImage: `linear-gradient(135deg, ${tint(9)}, ${tint(3)})`,
+    boxShadow: `inset 0 0 0 1px ${tint(14)}, inset 0 1px 0 rgb(255 255 255 / 0.05)`,
+  };
 }
 
 /** A small dot in the environment's colour; renders nothing for this machine. */
