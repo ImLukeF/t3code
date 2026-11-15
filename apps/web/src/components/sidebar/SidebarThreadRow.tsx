@@ -88,6 +88,7 @@ import { cn } from "~/lib/utils";
 import { textDirection } from "~/textDirection";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { useEnvironmentTintStyle } from "../EnvironmentAccent";
+import { SidebarRowBadges } from "./SidebarRowBadges";
 import {
   animateSidebarLayoutChanges,
   hasUnseenCompletion,
@@ -1385,6 +1386,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               )}
               {draftIndicator}
               {title}
+              <SidebarRowBadges thread={thread} />
               {multiline ? titleLineIcons : null}
               {pinIndicator}
               {multiline ? null : terminalStatusIcon}
@@ -1733,6 +1735,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             </div>
             <div className="mt-1 flex min-w-0 items-center gap-1.5">
               {title}
+              <SidebarRowBadges thread={thread} />
               {isRegeneratingTitle ? (
                 <span role="status" className="sr-only">
                   <T>Regenerating title</T>
