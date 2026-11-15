@@ -31,6 +31,12 @@ export class DesktopUserDataInitializationError extends Schema.TaggedError<Deskt
   }
 }
 
+declare const __T3CODE_BUILD_USER_DATA_NAME__: string | undefined;
+
+/** A personal build names its own Electron profile so it can't share one with the official app. */
+const buildUserDataName =
+  typeof __T3CODE_BUILD_USER_DATA_NAME__ === "undefined" ? "" : __T3CODE_BUILD_USER_DATA_NAME__;
+
 export const resolveUserDataPath = Effect.fn("desktop.userData.resolveUserDataPath")(
   function* (input: {
     readonly appDataDirectory: string;
@@ -41,7 +47,7 @@ export const resolveUserDataPath = Effect.fn("desktop.userData.resolveUserDataPa
     const path = yield* Path.Path;
     const names = input.isDevelopment
       ? { current: "t3code-dev", legacy: "T3 Code (Dev)" }
-      : { current: "t3code-v2", legacy: "T3 Code (Alpha)" };
+      : { current: buildUserDataName || "t3code-v2", legacy: "T3 Code (Alpha)" };
     const destinationPath = path.join(input.appDataDirectory, names.current);
     const legacyPath = path.join(input.appDataDirectory, names.legacy);
     const inspect = (resourcePath: string) =>
