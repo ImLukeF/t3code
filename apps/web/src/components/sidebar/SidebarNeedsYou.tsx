@@ -1,8 +1,14 @@
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { ThreadPendingApproval } from "@t3tools/client-runtime/state/thread-requests";
+import type { EnvironmentId, ProviderApprovalDecision, ThreadId } from "@t3tools/contracts";
+import { useAtomValue } from "@effect/atom-react";
+import { useState } from "react";
 
 import { cn } from "~/lib/utils";
+import { environmentThreadDetails, threadEnvironment } from "~/state/threads";
+import { useOrchestrationCommand } from "~/state/use-orchestration-command";
+import { Button } from "../ui/button";
 import {
   hasUnseenCompletion,
   resolveSidebarRowStatus,
@@ -59,6 +65,67 @@ export function selectNextAttentionThread(
   );
 }
 
+const APPROVAL_KIND_LABEL: Record<ThreadPendingApproval["requestKind"], string> = {
+  command: "Run a command",
+  "file-read": "Read a file",
+  "file-change": "Change files",
+  "mcp-elicitation": "Answer a tool",
+  permission: "Grant a permission",
+};
+
+/**
+ * What the thread is waiting on, with Approve / Deny for approvals. Mounting this
+ * subscribes to the thread's detail, so it only renders for threads in the list.
+ */
+function NeedsYouRequest(props: { readonly thread: EnvironmentThreadShell }) {
+  const { thread } = props;
+  const requests = useAtomValue(
+    environmentThreadDetails.pendingRequestsAtom(scopeThreadRef(thread.environmentId, thread.id)),
+  );
+  const respondToApproval = useOrchestrationCommand(threadEnvironment.respondToApproval);
+  const [responding, setResponding] = useState(false);
+  const approval = requests?.approvals[0] ?? null;
+  const question = requests?.userInputs[0]?.questions[0] ?? null;
+
+  if (approval !== null) {
+    const respond = async (decision: ProviderApprovalDecision) => {
+      setResponding(true);
+      await respondToApproval({
+        environmentId: thread.environmentId,
+        input: { threadId: thread.id, requestId: approval.requestId, decision },
+      });
+      setResponding(false);
+    };
+    const canRespond = approval.responseCapability === "live" && !responding;
+    return (
+      <div className="flex flex-col gap-1.5 px-2 pb-1.5">
+        <p className="truncate font-mono text-xs text-muted-foreground">
+          {approval.detail ?? approval.reason ?? APPROVAL_KIND_LABEL[approval.requestKind]}
+        </p>
+        <div className="flex gap-1.5">
+          <Button size="compact" disabled={!canRespond} onClick={() => void respond("accept")}>
+            Approve
+          </Button>
+          <Button
+            size="compact"
+            variant="outline"
+            disabled={!canRespond}
+            onClick={() => void respond("decline")}
+          >
+            Deny
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  if (question !== null) {
+    return (
+      <p className="line-clamp-2 px-2 pb-1.5 text-xs text-muted-foreground">{question.question}</p>
+    );
+  }
+  return null;
+}
+
 /** A pinned list above the sidebar threads, so a blocked thread is never buried. */
 export function SidebarNeedsYou(props: {
   readonly threads: readonly EnvironmentThreadShell[];
@@ -82,7 +149,7 @@ export function SidebarNeedsYou(props: {
           const key = props.threadKey(thread);
           const label = NEEDS_YOU_LABEL[resolveSidebarThreadStatus(thread)];
           return (
-            <li key={key}>
+            <li key={key} className="rounded-md bg-background/40">
               <button
                 type="button"
                 aria-current={key === props.activeThreadKey ? "page" : undefined}
@@ -97,6 +164,7 @@ export function SidebarNeedsYou(props: {
                   {label}
                 </span>
               </button>
+              <NeedsYouRequest thread={thread} />
             </li>
           );
         })}
