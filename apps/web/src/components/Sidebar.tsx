@@ -281,7 +281,12 @@ import {
   SidebarSectionHeader,
   SidebarSectionPlaceholder,
 } from "./sidebar/SidebarListMarkers";
-import { SidebarNeedsYou, selectNeedsYouThreads } from "./sidebar/SidebarNeedsYou";
+import {
+  COMPOSER_SENT_EVENT,
+  SidebarNeedsYou,
+  selectNeedsYouThreads,
+  selectNextAttentionThread,
+} from "./sidebar/SidebarNeedsYou";
 
 function sameSidebarProviderEntries(
   left: ReadonlyMap<string, SidebarProviderEntry>,
@@ -2974,6 +2979,21 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     searchableThreads,
     threadByKey,
   ]);
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- window listener for composer sends; opens the next thread that needs attention
+  useEffect(() => {
+    const onComposerSent = (event: Event) => {
+      if (!(event instanceof CustomEvent) || typeof event.detail !== "string") return;
+      const target = selectNextAttentionThread(searchableThreads, event.detail);
+      if (target === undefined) return;
+      // Let the send settle before the composer unmounts.
+      window.setTimeout(() => {
+        void navigateToThread(scopeThreadRef(target.environmentId, target.id));
+      }, 150);
+    };
+    window.addEventListener(COMPOSER_SENT_EVENT, onComposerSent);
+    return () => window.removeEventListener(COMPOSER_SENT_EVENT, onComposerSent);
+  }, [navigateToThread, searchableThreads]);
 
   const showJumpHints = useThreadJumpHintsVisible(keybindings, routeThreadRef);
 

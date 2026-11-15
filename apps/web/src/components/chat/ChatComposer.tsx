@@ -1,5 +1,6 @@
 import { copySnapshot } from "./copySnapshot";
 import { VoiceInputSetup } from "./VoiceInputSetup";
+import { announceComposerSent } from "../sidebar/SidebarNeedsYou";
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
 import { insertAttachmentReferencesForDraft } from "./composerAttachmentReferences";
 import type { ComposerAttachmentInsertion } from "../composerAttachmentInsertion";
@@ -2247,6 +2248,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     });
     setComposerSubmissionError(submission.validationMessage);
     if (!submission.didDispatch) return false;
+    // A follow-up in an existing thread hands off to the sidebar, which opens the next thread to act on.
+    if (draftId === null && activeThreadId !== null) {
+      announceComposerSent(environmentId, activeThreadId);
+    }
     onTypingGuardSend();
     if (shouldBlurMobileComposerOnSubmit()) {
       blurMobileComposerAfterSend();

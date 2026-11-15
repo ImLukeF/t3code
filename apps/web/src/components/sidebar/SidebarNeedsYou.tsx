@@ -1,7 +1,25 @@
+import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 import { cn } from "~/lib/utils";
-import { resolveSidebarThreadStatus, type SidebarThreadStatus } from "../Sidebar.logic";
+import {
+  hasUnseenCompletion,
+  resolveSidebarRowStatus,
+  resolveSidebarThreadStatus,
+  type SidebarThreadStatus,
+} from "../Sidebar.logic";
+
+/** Fired after the composer sends from an existing thread; the sidebar then moves on. */
+export const COMPOSER_SENT_EVENT = "t3luke:composer-sent";
+
+export function announceComposerSent(environmentId: EnvironmentId, threadId: ThreadId): void {
+  window.dispatchEvent(
+    new CustomEvent<string>(COMPOSER_SENT_EVENT, {
+      detail: scopedThreadKey(scopeThreadRef(environmentId, threadId)),
+    }),
+  );
+}
 
 const NEEDS_YOU_LABEL: Partial<Record<SidebarThreadStatus, string>> = {
   approval: "Approval",
@@ -18,6 +36,26 @@ export function selectNeedsYouThreads(
       thread.archivedAt === null &&
       thread.deletedAt === null &&
       NEEDS_YOU_LABEL[resolveSidebarThreadStatus(thread)] !== undefined,
+  );
+}
+
+/** Where to go after sending: the next thread that needs you, else the next one that finished. */
+export function selectNextAttentionThread(
+  threads: readonly EnvironmentThreadShell[],
+  sentThreadKey: string,
+): EnvironmentThreadShell | undefined {
+  const others = threads.filter(
+    (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) !== sentThreadKey,
+  );
+  return (
+    selectNeedsYouThreads(others)[0] ??
+    others.find(
+      (thread) =>
+        thread.archivedAt === null &&
+        thread.deletedAt === null &&
+        resolveSidebarRowStatus(thread) === "ready" &&
+        hasUnseenCompletion(thread),
+    )
   );
 }
 
