@@ -107,7 +107,7 @@ export function SidebarClashTracker(props: {
 }
 
 /** What this row shares with another running thread, if anything. */
-function useThreadClash(thread: Pick<EnvironmentThreadShell, "environmentId" | "id">): {
+export function useThreadClash(thread: Pick<EnvironmentThreadShell, "environmentId" | "id">): {
   readonly kind: "folder" | "file";
   readonly otherTitle: string;
   readonly file: string | null;

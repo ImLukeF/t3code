@@ -89,6 +89,7 @@ import { textDirection } from "~/textDirection";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { useEnvironmentTintStyle } from "../EnvironmentAccent";
 import { SidebarRowBadges } from "./SidebarRowBadges";
+import { ThreadHoverInsights } from "./ThreadHoverInsights";
 import {
   animateSidebarLayoutChanges,
   hasUnseenCompletion,
@@ -305,6 +306,7 @@ function SidebarThreadTooltip({
           ) : null
         }
       >
+        <ThreadHoverInsights thread={thread} />
         {projectDisplayName ? (
           <div className="flex min-w-0 items-center gap-2">
             {project ? <ProjectFavicon project={project} className="size-3 shrink-0" /> : null}
