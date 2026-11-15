@@ -4,17 +4,11 @@ import type { CSSProperties } from "react";
 import { cn } from "~/lib/utils";
 import { usePrimaryEnvironmentId } from "~/state/environments";
 
-/** Distinct hues that read on both light and dark surfaces. Amber comes first for the common case. */
-const ENVIRONMENT_ACCENTS = [
-  "#F59E0B",
-  "#A855F7",
-  "#EC4899",
-  "#3B82F6",
-  "#22C55E",
-  "#EF4444",
-  "#06B6D4",
-  "#84CC16",
-] as const;
+/**
+ * Calm hues that read on light and dark surfaces and stay clear of the status colours
+ * (blue running, amber needs you, green done, red failed).
+ */
+const ENVIRONMENT_ACCENTS = ["#8B5CF6", "#06B6D4", "#6366F1"] as const;
 
 /** A stable colour for each remote environment. This machine stays neutral. */
 function environmentAccentColor(
@@ -43,7 +37,7 @@ export function useEnvironmentTintStyle(
 ): CSSProperties | undefined {
   const color = useEnvironmentAccentColor(environmentId);
   if (color === null) return undefined;
-  const wash = `color-mix(in srgb, ${color} 14%, transparent)`;
+  const wash = `color-mix(in srgb, ${color} 6%, transparent)`;
   return { backgroundImage: `linear-gradient(${wash}, ${wash})` };
 }
 
