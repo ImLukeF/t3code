@@ -25,6 +25,9 @@ const publicConfigDefine = {
   __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__: JSON.stringify(
     repoEnv.T3CODE_CLERK_PUBLISHABLE_KEY?.trim() ?? "",
   ),
+  __T3CODE_BUILD_USER_DATA_NAME__: JSON.stringify(
+    repoEnv.T3CODE_DESKTOP_USER_DATA_NAME?.trim() ?? "",
+  ),
 };
 
 const PAGE_WORLD_MODULE = /[\\/]src[\\/]preview[\\/]PageWorld\.ts$/;
