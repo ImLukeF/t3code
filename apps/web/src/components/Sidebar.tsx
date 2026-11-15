@@ -3042,6 +3042,17 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           navigateToThread(scopeThreadRef(targetThread.environmentId, targetThread.id));
         return true;
       };
+      if (command === "thread.nextNeedsYou") {
+        // Cycles through blocked threads, even ones inside a collapsed shelf.
+        const needsYou = selectNeedsYouThreads(searchableThreads);
+        const index = needsYou.findIndex((thread) => threadShellKey(thread) === routeThreadKey);
+        const target = needsYou[(index + 1) % Math.max(needsYou.length, 1)];
+        if (target === undefined) return;
+        event.preventDefault();
+        event.stopPropagation();
+        void navigateToThread(scopeThreadRef(target.environmentId, target.id));
+        return;
+      }
       const traversalDirection = threadTraversalDirectionFromCommand(command);
       if (traversalDirection !== null) {
         navigateToRowKey(
@@ -3066,7 +3077,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     navigateToThread,
     orderedRowKeys,
     routeRowKey,
+    routeThreadKey,
     routeThreadRef,
+    searchableThreads,
     threadByKey,
   ]);
 

@@ -132,6 +132,8 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+shift+]", command: "thread.next" },
   { key: "cmd+shift+[", command: "terminal.previous", when: "terminalFocus && isMac" },
   { key: "cmd+shift+]", command: "terminal.next", when: "terminalFocus && isMac" },
+  { key: "mod+alt+j", command: "thread.nextNeedsYou", when: "!terminalFocus" },
+  { key: "mod+alt+h", command: "composer.cycleHost", when: "!terminalFocus" },
   { key: "mod+shift+c", command: "thread.copyReference", when: "!terminalFocus" },
   { key: "mod+shift+s", command: "thread.settle", when: "!terminalFocus" },
   { key: "mod+shift+p", command: "thread.pin", when: "!terminalFocus" },
