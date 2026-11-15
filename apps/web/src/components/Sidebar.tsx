@@ -2985,7 +2985,16 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   useEffect(() => {
     const onComposerSent = (event: Event) => {
       if (!(event instanceof CustomEvent) || typeof event.detail !== "string") return;
-      const target = selectNextAttentionThread(searchableThreads, event.detail);
+      // Only rows on screen, in the order they appear: working (shown first), pinned, then the
+      // inbox. Collapsed, snoozed and settled threads are never jumped to.
+      const visibleRows = [
+        ...visibleWorkingThreads,
+        ...pinnedThreads,
+        ...(projectFolders === null
+          ? activeThreads
+          : projectFolders.flatMap((folder) => folder.threads)),
+      ];
+      const target = selectNextAttentionThread(visibleRows, event.detail);
       if (target === undefined) return;
       // Let the send settle before the composer unmounts.
       window.setTimeout(() => {
@@ -2994,7 +3003,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     };
     window.addEventListener(COMPOSER_SENT_EVENT, onComposerSent);
     return () => window.removeEventListener(COMPOSER_SENT_EVENT, onComposerSent);
-  }, [navigateToThread, searchableThreads]);
+  }, [activeThreads, navigateToThread, pinnedThreads, projectFolders, visibleWorkingThreads]);
 
   const showJumpHints = useThreadJumpHintsVisible(keybindings, routeThreadRef);
 
