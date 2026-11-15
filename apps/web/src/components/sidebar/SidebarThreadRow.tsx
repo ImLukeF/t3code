@@ -91,7 +91,7 @@ import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
 import { textDirection } from "~/textDirection";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
-import { EnvironmentAccentDot } from "../EnvironmentAccent";
+import { useEnvironmentTintStyle } from "../EnvironmentAccent";
 import {
   animateSidebarLayoutChanges,
   hasUnseenCompletion,
@@ -1083,6 +1083,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     isActive: props.isActive,
   });
 
+  const environmentTint = useEnvironmentTintStyle(thread.environmentId);
   const title = isRenaming ? (
     <ThreadRenameInput
       title={renamingTitle}
@@ -1120,10 +1121,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       )}
       dir={textDirection(thread.title)}
     >
-      <EnvironmentAccentDot
-        environmentId={thread.environmentId}
-        className="me-1.5 mb-px align-middle"
-      />
       {thread.title}
       {isRegeneratingTitle ? (
         <ActivityShimmerOverlay className="truncate">{thread.title}</ActivityShimmerOverlay>
@@ -1345,6 +1342,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               aria-current={accessibility.current}
               data-testid={inFolder ? "sidebar-row-folder" : "sidebar-row-slim"}
               aria-busy={isRegeneratingTitle || undefined}
+              style={environmentTint}
               className={cn(
                 rowSurfaceClassName,
                 multiline
@@ -1559,6 +1557,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             aria-current={accessibility.current}
             data-testid="sidebar-row-card"
             aria-busy={isRegeneratingTitle || undefined}
+            style={environmentTint}
             className={rowSurfaceClassName}
             onClick={handleClick}
             onPointerEnter={intentPrefetch.onPointerEnter}
