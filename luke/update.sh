@@ -17,7 +17,7 @@ if [ -n "$(git status --porcelain)" ]; then
   exit 1
 fi
 
-LATEST="$(git ls-remote --tags --refs --sort=-v:refname upstream 'v*-nightly.*' | head -1 | sed 's#.*refs/tags/##')"
+LATEST="$(git ls-remote --tags --refs --sort=-v:refname upstream 'v*-nightly.*' | awk 'NR == 1 { sub(/.*refs\/tags\//, ""); print }')"
 [ -n "$LATEST" ] || { notify "Update failed: couldn't read T3 Code's Nightly releases."; exit 1; }
 git fetch upstream --no-tags "refs/tags/$LATEST:refs/tags/$LATEST"
 CURRENT="$(git describe --tags --match 'v*-nightly.*' --abbrev=0)"

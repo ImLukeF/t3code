@@ -11,7 +11,7 @@ export PATH="$REPO/node_modules/.bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/loc
 cd "$REPO"
 TAG="$(git describe --tags --match 'v*-nightly.*' --abbrev=0)"
 VERSION="${TAG#v}"
-IDENTITY="$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)"
+IDENTITY="$(security find-identity -v -p codesigning | awk -F'"' '/Developer ID Application/ && !found { print $2; found = 1 }')"
 [ -n "$IDENTITY" ] || { echo "No Developer ID Application certificate found" >&2; exit 1; }
 set -a
 # shellcheck source=/dev/null
