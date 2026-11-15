@@ -45,15 +45,24 @@ export function selectNeedsYouThreads(
   );
 }
 
-function isAttentionThread(thread: EnvironmentThreadShell): boolean {
-  if (thread.archivedAt !== null || thread.deletedAt !== null) return false;
-  if (NEEDS_YOU_LABEL[resolveSidebarThreadStatus(thread)] !== undefined) return true;
-  return resolveSidebarRowStatus(thread) === "ready" && hasUnseenCompletion(thread);
+function isLive(thread: EnvironmentThreadShell): boolean {
+  return thread.archivedAt === null && thread.deletedAt === null;
+}
+
+function needsYou(thread: EnvironmentThreadShell): boolean {
+  return isLive(thread) && NEEDS_YOU_LABEL[resolveSidebarThreadStatus(thread)] !== undefined;
+}
+
+function finishedUnread(thread: EnvironmentThreadShell): boolean {
+  return (
+    isLive(thread) && resolveSidebarRowStatus(thread) === "ready" && hasUnseenCompletion(thread)
+  );
 }
 
 /**
- * Where to go after sending: the next thread below the sent one, in sidebar order, that
- * needs you or finished unread. Only once nothing is left below does it wrap to the top.
+ * Where to go after sending: threads waiting on you come first, then threads that finished
+ * unread. Within each, the next one below the sent thread in sidebar order, wrapping to the top
+ * only once nothing is left below.
  */
 export function selectNextAttentionThread(
   threads: readonly EnvironmentThreadShell[],
@@ -62,13 +71,16 @@ export function selectNextAttentionThread(
   const sentIndex = threads.findIndex(
     (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === sentThreadKey,
   );
-  // With the sent thread not listed, the sweep starts at the top.
-  for (let step = 1; step <= threads.length; step += 1) {
-    const index = (sentIndex + step) % threads.length;
-    const thread = threads[index];
-    if (index !== sentIndex && thread !== undefined && isAttentionThread(thread)) return thread;
-  }
-  return undefined;
+  const nextBelow = (matches: (thread: EnvironmentThreadShell) => boolean) => {
+    // With the sent thread not listed, the sweep starts at the top.
+    for (let step = 1; step <= threads.length; step += 1) {
+      const index = (sentIndex + step) % threads.length;
+      const thread = threads[index];
+      if (index !== sentIndex && thread !== undefined && matches(thread)) return thread;
+    }
+    return undefined;
+  };
+  return nextBelow(needsYou) ?? nextBelow(finishedUnread);
 }
 
 const APPROVAL_KIND_LABEL: Record<ThreadPendingApproval["requestKind"], string> = {
