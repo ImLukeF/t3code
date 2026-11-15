@@ -1087,7 +1087,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     isActive: props.isActive,
   });
 
-  const environmentTint = useEnvironmentTintStyle(thread.environmentId);
+  const environmentTint = useEnvironmentTintStyle(thread.environmentId, {
+    dimmed: shouldRecede && (status === "preparing" || status === "working"),
+  });
   const title = isRenaming ? (
     <ThreadRenameInput
       title={renamingTitle}

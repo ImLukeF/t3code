@@ -8,6 +8,7 @@ import { useState } from "react";
 import { cn } from "~/lib/utils";
 import { environmentThreadDetails, threadEnvironment } from "~/state/threads";
 import { useOrchestrationCommand } from "~/state/use-orchestration-command";
+import { useEnvironmentTintStyle } from "../EnvironmentAccent";
 import { Button } from "../ui/button";
 import {
   hasUnseenCompletion,
@@ -173,6 +174,34 @@ function NeedsYouRequest(props: { readonly thread: EnvironmentThreadShell }) {
   return null;
 }
 
+function NeedsYouRow(props: {
+  readonly thread: EnvironmentThreadShell;
+  readonly isActive: boolean;
+  readonly onSelect: (thread: EnvironmentThreadShell) => void;
+}) {
+  const { thread } = props;
+  const tint = useEnvironmentTintStyle(thread.environmentId);
+  return (
+    <li className="rounded-md bg-background/40" style={tint}>
+      <button
+        type="button"
+        aria-current={props.isActive ? "page" : undefined}
+        onClick={() => props.onSelect(thread)}
+        className={cn(
+          "flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-start text-sm text-sidebar-foreground outline-none hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+          props.isActive && "bg-sidebar-row-active",
+        )}
+      >
+        <span className="min-w-0 flex-1 truncate">{thread.title}</span>
+        <span className="shrink-0 text-xs font-medium text-warning-foreground">
+          {NEEDS_YOU_LABEL[resolveSidebarThreadStatus(thread)]}
+        </span>
+      </button>
+      <NeedsYouRequest thread={thread} />
+    </li>
+  );
+}
+
 /** A pinned list above the sidebar threads, so a blocked thread is never buried. */
 export function SidebarNeedsYou(props: {
   readonly threads: readonly EnvironmentThreadShell[];
@@ -194,25 +223,13 @@ export function SidebarNeedsYou(props: {
       <ul className="flex flex-col gap-px">
         {props.threads.map((thread) => {
           const key = props.threadKey(thread);
-          const label = NEEDS_YOU_LABEL[resolveSidebarThreadStatus(thread)];
           return (
-            <li key={key} className="rounded-md bg-background/40">
-              <button
-                type="button"
-                aria-current={key === props.activeThreadKey ? "page" : undefined}
-                onClick={() => props.onSelect(thread)}
-                className={cn(
-                  "flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-start text-sm text-sidebar-foreground outline-none hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-                  key === props.activeThreadKey && "bg-sidebar-row-active",
-                )}
-              >
-                <span className="min-w-0 flex-1 truncate">{thread.title}</span>
-                <span className="shrink-0 text-xs font-medium text-warning-foreground">
-                  {label}
-                </span>
-              </button>
-              <NeedsYouRequest thread={thread} />
-            </li>
+            <NeedsYouRow
+              key={key}
+              thread={thread}
+              isActive={key === props.activeThreadKey}
+              onSelect={props.onSelect}
+            />
           );
         })}
       </ul>

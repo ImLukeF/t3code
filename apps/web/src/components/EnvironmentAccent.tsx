@@ -31,13 +31,19 @@ function useEnvironmentAccentColor(environmentId: EnvironmentId | null): string 
     : environmentAccentColor(environmentId, primaryEnvironmentId);
 }
 
-/** A tinted-glass wash of the environment's colour over a row; none for this machine. */
+/**
+ * A tinted-glass wash of the environment's colour over a row; none for this machine.
+ * `dimmed` rows are drawn at reduced opacity, so their tint is raised to read the same.
+ */
 export function useEnvironmentTintStyle(
   environmentId: EnvironmentId | null,
+  options?: { readonly dimmed?: boolean },
 ): CSSProperties | undefined {
   const color = useEnvironmentAccentColor(environmentId);
   if (color === null) return undefined;
-  const tint = (percent: number) => `color-mix(in srgb, ${color} ${percent}%, transparent)`;
+  const boost = options?.dimmed ? 1.45 : 1;
+  const tint = (percent: number) =>
+    `color-mix(in srgb, ${color} ${Math.round(percent * boost)}%, transparent)`;
   // Tinted glass: a soft diagonal wash, a faint edge in the same hue and a thin top highlight.
   return {
     backgroundImage: `linear-gradient(135deg, ${tint(9)}, ${tint(3)})`,
