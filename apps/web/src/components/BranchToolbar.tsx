@@ -801,6 +801,11 @@ export const BranchToolbar = memo(function BranchToolbar({
             "min-h-7 min-w-10 items-center gap-1 sm:min-h-6",
             showGitControls ? "hidden @xl/composer-surface:flex" : "flex",
             "flex-1",
+            // On wide composers, machine, checkout and branch read as one run-context bar.
+            showGitControls &&
+              "@xl/composer-surface:flex-initial @xl/composer-surface:rounded-s-lg @xl/composer-surface:border-s @xl/composer-surface:ps-1",
+            showGitControls &&
+              "@xl/composer-surface:border-y @xl/composer-surface:border-border/60 @xl/composer-surface:bg-muted/40",
           )}
         >
           {showEnvironmentIndicator && availableEnvironments && (
@@ -835,6 +840,13 @@ export const BranchToolbar = memo(function BranchToolbar({
               onUsePreviousWorktree={onUsePreviousWorktree}
             />
           ) : null}
+          {showGitControls ? (
+            <Separator
+              orientation="vertical"
+              className="mx-0.5 h-3.5!"
+              data-composer-context-control
+            />
+          ) : null}
         </div>
       ) : null}
 
@@ -842,7 +854,11 @@ export const BranchToolbar = memo(function BranchToolbar({
         <BranchToolbarBranchSelector
           forceNewWorktree={forceNewWorktree}
           ref={branchSelectorRef}
-          className="min-w-0 flex-initial justify-end @xl/composer-surface:ml-auto"
+          className={cn(
+            "min-w-0 flex-initial justify-end",
+            "@xl/composer-surface:-ms-1 @xl/composer-surface:rounded-e-lg @xl/composer-surface:border-e @xl/composer-surface:pe-1",
+            "@xl/composer-surface:border-y @xl/composer-surface:border-border/60 @xl/composer-surface:bg-muted/40",
+          )}
           environmentId={environmentId}
           threadId={threadId}
           {...(draftId ? { draftId } : {})}
