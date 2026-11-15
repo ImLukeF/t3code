@@ -87,6 +87,7 @@ import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
 import { textDirection } from "~/textDirection";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
+import { EnvironmentAccentDot } from "../EnvironmentAccent";
 import {
   animateSidebarLayoutChanges,
   hasUnseenCompletion,
@@ -1105,6 +1106,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       )}
       dir={textDirection(thread.title)}
     >
+      <EnvironmentAccentDot
+        environmentId={thread.environmentId}
+        className="me-1.5 mb-px align-middle"
+      />
       {thread.title}
       {isRegeneratingTitle ? (
         <ActivityShimmerOverlay className="truncate">{thread.title}</ActivityShimmerOverlay>
