@@ -89,6 +89,7 @@ import { formatRelativeTime, parseTimestampDate } from "../../timestampFormat";
 import type { SidebarThreadSummary } from "../../types";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
+import { SidebarRowBadges } from "./SidebarRowBadges";
 import { textDirection } from "~/textDirection";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { useEnvironmentTintStyle } from "../EnvironmentAccent";
@@ -1378,6 +1379,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             )}
             {draftIndicator}
             {title}
+            <SidebarRowBadges thread={thread} />
             {multiline ? titleLineIcons : null}
             {pinIndicator}
             {multiline ? null : terminalStatusIcon}
@@ -1737,6 +1739,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           </div>
           <div className="mt-1 flex min-w-0 items-center gap-1.5">
             {title}
+            <SidebarRowBadges thread={thread} />
             {isRegeneratingTitle ? (
               <span role="status" className="sr-only">
                 <T>Regenerating title</T>

@@ -290,6 +290,7 @@ import {
   SidebarSectionHeader,
   SidebarSectionPlaceholder,
 } from "./sidebar/SidebarListMarkers";
+import { SidebarClashTracker } from "./sidebar/SidebarRowBadges";
 import {
   COMPOSER_SENT_EVENT,
   SidebarNeedsYou,
@@ -3414,6 +3415,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         }
       >
         <SidebarGroup className="flex-1" role="presentation">
+          <SidebarClashTracker threads={searchableThreads} />
           {isSearchingThreads ? null : (
             <SidebarNeedsYou
               threads={selectNeedsYouThreads(searchableThreads)}
