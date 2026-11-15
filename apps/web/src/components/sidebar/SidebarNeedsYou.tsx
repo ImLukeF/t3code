@@ -79,6 +79,35 @@ const APPROVAL_KIND_LABEL: Record<ThreadPendingApproval["requestKind"], string> 
   permission: "Grant a permission",
 };
 
+/** One line saying what a blocked thread wants, for its sidebar row. */
+function RowRequestText(props: { readonly thread: EnvironmentThreadShell }) {
+  const { thread } = props;
+  const requests = useAtomValue(
+    environmentThreadDetails.pendingRequestsAtom(scopeThreadRef(thread.environmentId, thread.id)),
+  );
+  const approval = requests?.approvals[0] ?? null;
+  const question = requests?.userInputs[0]?.questions[0] ?? null;
+  const text =
+    approval !== null
+      ? `Approve: ${approval.detail ?? approval.reason ?? APPROVAL_KIND_LABEL[approval.requestKind]}`
+      : question !== null
+        ? question.question
+        : null;
+  if (text === null) return null;
+  return (
+    <span data-row-request="" className="min-w-0 truncate text-xs text-warning-foreground">
+      {text}
+    </span>
+  );
+}
+
+/** On a row that needs you, what it is asking for; nothing (and no subscription) otherwise. */
+export function SidebarRowRequest(props: { readonly thread: EnvironmentThreadShell }) {
+  return NEEDS_YOU_LABEL[resolveSidebarThreadStatus(props.thread)] === undefined ? null : (
+    <RowRequestText thread={props.thread} />
+  );
+}
+
 /**
  * What the thread is waiting on, with Approve / Deny for approvals. Mounting this
  * subscribes to the thread's detail, so it only renders for threads in the list.
