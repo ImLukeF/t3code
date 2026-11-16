@@ -7,6 +7,9 @@ APP_NAME="T3 Code (Luke)"
 READY="$WORK/ready/$APP_NAME.app"
 TARGET="/Applications/$APP_NAME.app"
 
+# Keeps the VPS on the installed version; it waits there while agents run.
+"$(dirname "$0")/vps-update.sh" >>"$WORK/vps-update.log" 2>&1 || true
+
 [ -d "$READY" ] || exit 0
 
 notify() {
