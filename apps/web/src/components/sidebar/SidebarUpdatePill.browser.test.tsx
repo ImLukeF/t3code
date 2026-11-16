@@ -1,4 +1,4 @@
-import type { DesktopUpdateState } from "@t3tools/contracts";
+import { type DesktopUpdateState, EnvironmentId } from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => {
     update: null as DesktopUpdateState | null,
     hasUpdates: false,
     rows: [] as ReadonlyArray<UpdateEverythingRow>,
+    run: vi.fn(async (_options: { unpicked?: ReadonlySet<string> }) => {}),
     subscribe: (listener: () => void) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -43,6 +44,7 @@ vi.mock("./useUpdateEverything", () => ({
     providerCount: 0,
     rows: mocks.rows,
     restarts: [],
+    run: mocks.run,
   }),
 }));
 
@@ -166,5 +168,28 @@ describe("SidebarUpdatePill update everything", () => {
     const row = table.getByRole("row", { name: new RegExp(label) });
     await expect.element(row.getByRole("cell", { name: label, exact: true })).toBeVisible();
     await expect.element(row.getByRole("cell", { name: "Claude", exact: true })).toBeVisible();
+  });
+});
+
+describe("SidebarUpdatePill without app updates", () => {
+  it("still checks every machine and runs only the ticked updates", async () => {
+    const vps = EnvironmentId.make("vps");
+    setup(
+      { ...nightlyUpdate([]), enabled: false, status: "disabled", availableVersion: null },
+      {
+        rows: [
+          { environmentId: vps, label: "VPS", app: "server", skipped: null, providers: ["Claude"] },
+        ],
+      },
+    );
+    await using screen = await render(<SidebarUpdatePill />);
+    await userEvent.click(screen.getByRole("button", { name: "Check for updates" }));
+
+    await userEvent.click(page.getByRole("checkbox", { name: "Claude" }));
+    await expect.element(page.getByRole("checkbox", { name: "Server" })).toBeChecked();
+    await userEvent.click(page.getByRole("button", { name: "Update", exact: true }));
+
+    await vi.waitFor(() => expect(mocks.run).toHaveBeenCalledTimes(1));
+    expect([...(mocks.run.mock.calls[0]![0].unpicked ?? [])]).toEqual(["provider:vps:Claude"]);
   });
 });
