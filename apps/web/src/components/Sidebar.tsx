@@ -3114,10 +3114,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           ? activeThreads
           : projectFolders.flatMap((folder) => folder.threads)),
       ];
-      const target = selectNextAttentionThread(visibleRows, event.detail, {
-        now: new Date().toISOString(),
-        localLastVisitedAtByKey: useUiStateStore.getState().threadLastVisitedAtById,
-      });
+      const target = selectNextAttentionThread(visibleRows, event.detail);
       useNextUpStore.setState({
         nextUp: target === undefined ? null : { fromKey: event.detail, target },
       });

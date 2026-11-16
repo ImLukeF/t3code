@@ -1,7 +1,6 @@
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { ThreadPendingApproval } from "@t3tools/client-runtime/state/thread-requests";
-import { threadWokeAt } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentId, ProviderApprovalDecision, ThreadId } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { useState } from "react";
@@ -12,13 +11,7 @@ import { environmentThreadDetails, threadEnvironment } from "~/state/threads";
 import { useOrchestrationCommand } from "~/state/use-orchestration-command";
 import { useEnvironmentTintStyle } from "../EnvironmentAccent";
 import { Button } from "../ui/button";
-import {
-  hasUnseenCompletion,
-  resolveSidebarRowStatus,
-  resolveThreadLastVisitedAt,
-  resolveSidebarThreadStatus,
-  type SidebarThreadStatus,
-} from "../Sidebar.logic";
+import { resolveSidebarThreadStatus, type SidebarThreadStatus } from "../Sidebar.logic";
 
 /** Fired after the composer sends from an existing thread; the sidebar then moves on. */
 export const COMPOSER_SENT_EVENT = "t3luke:composer-sent";
@@ -53,39 +46,19 @@ function isLive(thread: EnvironmentThreadShell): boolean {
   return thread.archivedAt === null && thread.deletedAt === null;
 }
 
-function needsYou(thread: EnvironmentThreadShell): boolean {
-  return isLive(thread) && NEEDS_YOU_LABEL[resolveSidebarThreadStatus(thread)] !== undefined;
-}
-
-/** What the user has seen, from the server or, on older servers, this device. */
-export interface AttentionContext {
-  readonly now: string;
-  readonly localLastVisitedAtByKey: Readonly<Record<string, string>>;
-}
-
-/** Finished and unread, or back from a snooze unvisited: as the sidebar row shows it. */
-function wantsALook(thread: EnvironmentThreadShell, context: AttentionContext): boolean {
-  if (!isLive(thread)) return false;
-  const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
-  const lastVisitedAt = resolveThreadLastVisitedAt(
-    thread.lastVisitedAt,
-    context.localLastVisitedAtByKey[key],
-  );
-  const seen = { ...thread, lastVisitedAt };
-  if (resolveSidebarRowStatus(seen) === "ready" && hasUnseenCompletion(seen)) return true;
-  const wokeAt = threadWokeAt(thread, { now: context.now });
-  if (wokeAt === null || thread.settledOverride === "settled") return false;
-  return lastVisitedAt === undefined || Date.parse(lastVisitedAt) < Date.parse(wokeAt);
+/** Still running: setting up, working, or waiting on a child thread. */
+function isBusy(thread: EnvironmentThreadShell): boolean {
+  const status = resolveSidebarThreadStatus(thread);
+  return status === "preparing" || status === "working" || status === "waiting";
 }
 
 /**
- * Where to go after sending: the next row below the sent thread that is waiting on you, finished
- * unread or woke from a snooze, wrapping to the top once nothing is left below.
+ * Where to go after sending: the next row below the sent thread that isn't busy, read or not,
+ * wrapping to the top once nothing is left below.
  */
 export function selectNextAttentionThread(
   threads: readonly EnvironmentThreadShell[],
   sentThreadKey: string,
-  context: AttentionContext,
 ): EnvironmentThreadShell | undefined {
   const sentIndex = threads.findIndex(
     (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === sentThreadKey,
@@ -94,11 +67,7 @@ export function selectNextAttentionThread(
   for (let step = 1; step <= threads.length; step += 1) {
     const index = (sentIndex + step) % threads.length;
     const thread = threads[index];
-    if (
-      index !== sentIndex &&
-      thread !== undefined &&
-      (needsYou(thread) || wantsALook(thread, context))
-    ) {
+    if (index !== sentIndex && thread !== undefined && isLive(thread) && !isBusy(thread)) {
       return thread;
     }
   }
