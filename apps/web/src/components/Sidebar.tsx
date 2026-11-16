@@ -284,6 +284,9 @@ import {
 import { SidebarClashTracker } from "./sidebar/SidebarRowBadges";
 import {
   COMPOSER_SENT_EVENT,
+  GO_NEXT_UP_EVENT,
+  clearNextUp,
+  useNextUpStore,
   SidebarNeedsYou,
   selectNeedsYouThreads,
   selectNextAttentionThread,
@@ -2943,7 +2946,16 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         return true;
       };
       if (command === "thread.nextNeedsYou") {
-        // Cycles through blocked threads, even ones inside a collapsed shelf.
+        // The thread offered after a send comes first; otherwise cycle through blocked threads,
+        // even ones inside a collapsed shelf.
+        const nextUp = useNextUpStore.getState().nextUp;
+        if (nextUp !== null && nextUp.fromKey === routeThreadKey) {
+          event.preventDefault();
+          event.stopPropagation();
+          clearNextUp();
+          void navigateToThread(scopeThreadRef(nextUp.target.environmentId, nextUp.target.id));
+          return;
+        }
         const needsYou = selectNeedsYouThreads(searchableThreads);
         const index = needsYou.findIndex((thread) => threadShellKey(thread) === routeThreadKey);
         const target = needsYou[(index + 1) % Math.max(needsYou.length, 1)];
@@ -2981,12 +2993,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     threadByKey,
   ]);
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- window listener for composer sends; opens the next thread that needs attention
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- window listeners for composer sends and the Next chip; offers, then opens, the next thread to act on
   useEffect(() => {
     const onComposerSent = (event: Event) => {
       if (!(event instanceof CustomEvent) || typeof event.detail !== "string") return;
       // Only rows on screen, in the order they appear: working (shown first), pinned, then the
-      // inbox. Collapsed, snoozed and settled threads are never jumped to.
+      // inbox. Collapsed, snoozed and settled threads are never offered.
       const visibleRows = [
         ...visibleWorkingThreads,
         ...pinnedThreads,
@@ -2995,14 +3007,22 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           : projectFolders.flatMap((folder) => folder.threads)),
       ];
       const target = selectNextAttentionThread(visibleRows, event.detail);
-      if (target === undefined) return;
-      // Let the send settle before the composer unmounts.
-      window.setTimeout(() => {
-        void navigateToThread(scopeThreadRef(target.environmentId, target.id));
-      }, 150);
+      useNextUpStore.setState({
+        nextUp: target === undefined ? null : { fromKey: event.detail, target },
+      });
+    };
+    const onGoNextUp = () => {
+      const nextUp = useNextUpStore.getState().nextUp;
+      if (nextUp === null) return;
+      clearNextUp();
+      void navigateToThread(scopeThreadRef(nextUp.target.environmentId, nextUp.target.id));
     };
     window.addEventListener(COMPOSER_SENT_EVENT, onComposerSent);
-    return () => window.removeEventListener(COMPOSER_SENT_EVENT, onComposerSent);
+    window.addEventListener(GO_NEXT_UP_EVENT, onGoNextUp);
+    return () => {
+      window.removeEventListener(COMPOSER_SENT_EVENT, onComposerSent);
+      window.removeEventListener(GO_NEXT_UP_EVENT, onGoNextUp);
+    };
   }, [activeThreads, navigateToThread, pinnedThreads, projectFolders, visibleWorkingThreads]);
 
   const showJumpHints = useThreadJumpHintsVisible(keybindings, routeThreadRef);

@@ -1,6 +1,6 @@
 import { copySnapshot } from "./copySnapshot";
 import { VoiceInputSetup } from "./VoiceInputSetup";
-import { announceComposerSent } from "../sidebar/SidebarNeedsYou";
+import { announceComposerSent, clearNextUp, NextUpChip } from "../sidebar/SidebarNeedsYou";
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
 import { insertAttachmentReferencesForDraft } from "./composerAttachmentReferences";
 import type { ComposerAttachmentInsertion } from "../composerAttachmentInsertion";
@@ -685,6 +685,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   }, []);
   const questionPreparations = useQuestionAttachmentPreparation((state) => state.counts);
   const prompt = composerDraft.prompt;
+  const hasPrompt = prompt.length > 0;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- typing again dismisses the Next chip offered after the last send
+  useEffect(() => {
+    if (hasPrompt) clearNextUp();
+  }, [hasPrompt]);
   const composerImages = attachmentDraft.images;
   const composerFiles = attachmentDraft.files;
   const inlineFileIdSet = (() => {
@@ -2248,7 +2253,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     });
     setComposerSubmissionError(submission.validationMessage);
     if (!submission.didDispatch) return false;
-    // A follow-up in an existing thread hands off to the sidebar, which opens the next thread to act on.
+    // A follow-up in an existing thread hands off to the sidebar, which offers the next thread to act on.
     if (draftId === null && activeThreadId !== null) {
       announceComposerSent(environmentId, activeThreadId);
     }
@@ -3480,6 +3485,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       data-chat-composer-form="true"
       {...threadContextDropTargetProps()}
     >
+      <NextUpChip environmentId={environmentId} threadId={activeThreadId} />
       <ComposerBanner.Dock>
         <ComposerBanner.Column>
           <ComposerBannerStack items={shelfItems} />

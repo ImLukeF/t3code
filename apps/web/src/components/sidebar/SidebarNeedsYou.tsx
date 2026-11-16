@@ -4,6 +4,7 @@ import type { ThreadPendingApproval } from "@t3tools/client-runtime/state/thread
 import type { EnvironmentId, ProviderApprovalDecision, ThreadId } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { useState } from "react";
+import { create } from "zustand";
 
 import { cn } from "~/lib/utils";
 import { environmentThreadDetails, threadEnvironment } from "~/state/threads";
@@ -61,9 +62,8 @@ function finishedUnread(thread: EnvironmentThreadShell): boolean {
 }
 
 /**
- * Where to go after sending: threads waiting on you come first, then threads that finished
- * unread. Within each, the next one below the sent thread in sidebar order, wrapping to the top
- * only once nothing is left below.
+ * Where to go after sending: the next row below the sent thread that is waiting on you or
+ * finished unread, wrapping to the top once nothing is left below.
  */
 export function selectNextAttentionThread(
   threads: readonly EnvironmentThreadShell[],
@@ -72,16 +72,63 @@ export function selectNextAttentionThread(
   const sentIndex = threads.findIndex(
     (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === sentThreadKey,
   );
-  const nextBelow = (matches: (thread: EnvironmentThreadShell) => boolean) => {
-    // With the sent thread not listed, the sweep starts at the top.
-    for (let step = 1; step <= threads.length; step += 1) {
-      const index = (sentIndex + step) % threads.length;
-      const thread = threads[index];
-      if (index !== sentIndex && thread !== undefined && matches(thread)) return thread;
+  // With the sent thread not listed, the sweep starts at the top.
+  for (let step = 1; step <= threads.length; step += 1) {
+    const index = (sentIndex + step) % threads.length;
+    const thread = threads[index];
+    if (
+      index !== sentIndex &&
+      thread !== undefined &&
+      (needsYou(thread) || finishedUnread(thread))
+    ) {
+      return thread;
     }
-    return undefined;
-  };
-  return nextBelow(needsYou) ?? nextBelow(finishedUnread);
+  }
+  return undefined;
+}
+
+/** The thread offered after a send, shown as a chip on the thread it was sent from. */
+interface NextUp {
+  readonly fromKey: string;
+  readonly target: EnvironmentThreadShell;
+}
+
+export const useNextUpStore = create<{ readonly nextUp: NextUp | null }>(() => ({
+  nextUp: null,
+}));
+
+/** Asks the sidebar to open the offered thread. */
+export const GO_NEXT_UP_EVENT = "t3luke:go-next-up";
+
+export function clearNextUp(): void {
+  if (useNextUpStore.getState().nextUp !== null) useNextUpStore.setState({ nextUp: null });
+}
+
+/** "Next: <thread>" above the composer after a send; nothing until then. */
+export function NextUpChip(props: {
+  readonly environmentId: EnvironmentId;
+  readonly threadId: ThreadId | null;
+}) {
+  const nextUp = useNextUpStore((state) => state.nextUp);
+  const key =
+    props.threadId === null
+      ? null
+      : scopedThreadKey(scopeThreadRef(props.environmentId, props.threadId));
+  if (key === null || nextUp === null || nextUp.fromKey !== key) return null;
+  return (
+    <div className="relative h-0">
+      <button
+        type="button"
+        data-next-up-chip=""
+        onClick={() => window.dispatchEvent(new Event(GO_NEXT_UP_EVENT))}
+        className="absolute end-3 bottom-2 z-20 flex max-w-[min(26rem,calc(100%-1.5rem))] cursor-pointer items-center gap-2 rounded-full border border-border bg-popover/80 px-3 py-1 text-xs text-foreground shadow-sm backdrop-blur-md outline-none hover:bg-accent/15 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+      >
+        <span className="shrink-0 text-muted-foreground">Next:</span>
+        <span className="min-w-0 truncate font-medium">{nextUp.target.title}</span>
+        <kbd className="shrink-0 font-sans text-muted-foreground">⌥⌘J</kbd>
+      </button>
+    </div>
+  );
 }
 
 const APPROVAL_KIND_LABEL: Record<ThreadPendingApproval["requestKind"], string> = {
