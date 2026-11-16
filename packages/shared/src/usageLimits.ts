@@ -220,6 +220,10 @@ function accountKey(
 ): string | null {
   const normalizedEmail = email?.trim().toLowerCase();
   if (normalizedEmail) return `${driver}:${normalizedEmail}`;
+  // An OpenCode workspace's usage page names it on every server, including ones too old to send
+  // a workspace fingerprint, so environments sharing a workspace share one bar.
+  const workspaceUsageUrl = driver === "opencode" ? limits?.externalUsage?.url : undefined;
+  if (workspaceUsageUrl) return `${driver}:usage:${workspaceUsageUrl}`;
   return limits?.credentialFingerprint
     ? `${driver}:credential:${limits.credentialFingerprint}`
     : null;
