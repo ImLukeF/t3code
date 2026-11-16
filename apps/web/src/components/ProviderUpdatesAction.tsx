@@ -1,6 +1,11 @@
 import { m } from "../i18n/messages";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
-import { AuthProvidersManageScope, PROVIDER_DISPLAY_NAMES } from "@t3tools/contracts";
+import {
+  AuthProvidersManageScope,
+  type EnvironmentId,
+  PROVIDER_DISPLAY_NAMES,
+  type ProviderDriverKind,
+} from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   settlePromise,
@@ -94,19 +99,28 @@ export function useProviderUpdates() {
       : [];
   });
 
-  const updateAll = async ({ quiet = false }: { readonly quiet?: boolean } = {}) => {
+  const updateAll = async ({
+    quiet = false,
+    include,
+  }: {
+    readonly quiet?: boolean;
+    /** Limits the run to the provider updates picked in the update dialog. */
+    readonly include?: (environmentId: EnvironmentId, driver: ProviderDriverKind) => boolean;
+  } = {}) => {
     const runs = await Promise.all(
       machines.flatMap(({ environmentId, label, candidates }) =>
-        candidates.map(async (candidate): Promise<ProviderUpdateRun> => ({
-          environmentId,
-          machineLabel: label,
-          driver: candidate.driver,
-          instanceId: candidate.instanceId,
-          result: await updateProvider({
+        candidates
+          .filter((candidate) => include?.(environmentId, candidate.driver) ?? true)
+          .map(async (candidate): Promise<ProviderUpdateRun> => ({
             environmentId,
-            input: { provider: candidate.driver, instanceId: candidate.instanceId },
-          }),
-        })),
+            machineLabel: label,
+            driver: candidate.driver,
+            instanceId: candidate.instanceId,
+            result: await updateProvider({
+              environmentId,
+              input: { provider: candidate.driver, instanceId: candidate.instanceId },
+            }),
+          })),
       ),
     );
     const view = quiet ? null : getProviderUpdateRunToastView(runs);

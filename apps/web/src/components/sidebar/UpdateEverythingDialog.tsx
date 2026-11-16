@@ -16,10 +16,15 @@ import {
   AlertDialogTitle,
 } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
+import { Checkbox } from "../ui/checkbox";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { MiddleTruncate } from "../ui/middle-truncate";
 import { ScrollArea } from "../ui/scroll-area";
-import type { RestartingMachine, UpdateEverythingRow } from "./updateEverything.logic";
+import {
+  type RestartingMachine,
+  type UpdateEverythingRow,
+  updatePickKey,
+} from "./updateEverything.logic";
 
 const isRunning = (status: string) =>
   status === "preparing" || status === "starting" || status === "running";
@@ -58,6 +63,9 @@ interface UpdateEverythingDialogProps {
   readonly busy?: boolean;
   /** Machines are still looking for provider updates, so more rows can appear. */
   readonly checking?: boolean;
+  /** With `onTogglePick`, each server and provider update gets a tick box. */
+  readonly unpicked?: ReadonlySet<string>;
+  readonly onTogglePick?: (key: string) => void;
 }
 
 type UpdateEverythingDialogContentProps = Omit<
@@ -106,6 +114,8 @@ function UpdateEverythingDialogContent({
   disabledReason = null,
   busy = false,
   checking = false,
+  unpicked = new Set(),
+  onTogglePick,
 }: UpdateEverythingDialogContentProps) {
   const gt = useGT();
   const m = useMessages();
@@ -128,6 +138,30 @@ function UpdateEverythingDialogContent({
   const running = stopped + continuing;
   const restarting = new Set(restarts.map((machine) => machine.environmentId));
   const updating = rows.filter((row) => row.app !== null || row.providers.length > 0);
+  const serverKey = (row: UpdateEverythingRow) =>
+    row.environmentId !== null && row.app !== null && row.app !== "this-app"
+      ? updatePickKey.server(row.environmentId)
+      : null;
+  const rowKeys = (row: UpdateEverythingRow) => [
+    ...(serverKey(row) !== null ? [serverKey(row)!] : []),
+    ...(row.environmentId !== null
+      ? row.providers.map((provider) => updatePickKey.provider(row.environmentId!, provider))
+      : []),
+  ];
+  const picked = onTogglePick
+    ? updating.filter(
+        (row) => row.app === "this-app" || rowKeys(row).some((key) => !unpicked.has(key)),
+      )
+    : updating;
+  const pick = (key: string | null, label: string) =>
+    key === null || !onTogglePick ? (
+      label
+    ) : (
+      <label className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap">
+        <Checkbox checked={!unpicked.has(key)} onCheckedChange={() => onTogglePick(key)} />
+        {label}
+      </label>
+    );
   const skipped = rows.filter((row) => row.skipped !== null);
 
   return (
@@ -135,9 +169,12 @@ function UpdateEverythingDialogContent({
       <AlertDialogHeader className="shrink-0">
         <AlertDialogTitle>
           {title ??
-            gt("{count, plural, one {Update {count} machine?} other {Update {count} machines?}}", {
-              count: updating.length,
-            })}
+            (updating.length === 0 && !checking
+              ? gt("Everything is up to date")
+              : gt(
+                  "{count, plural, one {Update {count} machine?} other {Update {count} machines?}}",
+                  { count: picked.length },
+                ))}
         </AlertDialogTitle>
         <AlertDialogDescription>
           {version !== null ? (
@@ -193,7 +230,7 @@ function UpdateEverythingDialogContent({
                   <MiddleTruncate value={row.label} aria-hidden />
                 </span>
                 <span role="cell">
-                  {row.app !== null ? m(APP_LABELS[row.app]) : null}
+                  {row.app !== null ? pick(serverKey(row), m(APP_LABELS[row.app])) : null}
                   {row.app === null && row.skipped !== null ? (
                     <span className="text-muted-foreground">
                       <T>Skipped</T>
@@ -208,7 +245,14 @@ function UpdateEverythingDialogContent({
                 <span role="cell">
                   {row.providers.map((provider, index) => (
                     <Fragment key={provider}>
-                      <span className="whitespace-nowrap">{provider}</span>
+                      <span className="whitespace-nowrap">
+                        {pick(
+                          row.environmentId === null
+                            ? null
+                            : updatePickKey.provider(row.environmentId, provider),
+                          provider,
+                        )}
+                      </span>
                       {index < row.providers.length - 1 ? ", " : null}
                     </Fragment>
                   ))}
@@ -274,7 +318,10 @@ function UpdateEverythingDialogContent({
         <AlertDialogClose ref={cancelRef} render={<Button variant="outline" disabled={busy} />}>
           <T>Cancel</T>
         </AlertDialogClose>
-        <Button disabled={disabledReason !== null || busy} onClick={onConfirm}>
+        <Button
+          disabled={disabledReason !== null || busy || (onTogglePick && picked.length === 0)}
+          onClick={onConfirm}
+        >
           {confirmLabel ?? gt("Update", { $context: "verb, confirms the update" })}
         </Button>
       </AlertDialogFooter>

@@ -1,6 +1,10 @@
 import { msg, useMessages } from "gt-react";
 import { useAtomValue } from "@effect/atom-react";
-import { PROVIDER_DISPLAY_NAMES } from "@t3tools/contracts";
+import {
+  type EnvironmentId,
+  PROVIDER_DISPLAY_NAMES,
+  type ProviderDriverKind,
+} from "@t3tools/contracts";
 
 import { APP_VERSION } from "~/branding";
 import { isDesktopLocalConnectionTarget } from "~/connection/desktopLocal";
@@ -23,6 +27,7 @@ import {
   describeUpdateEverything,
   runUpdateEverything,
   type UpdateRunMachine,
+  updatePickKey,
 } from "./updateEverything.logic";
 import {
   clearSavedUpdateEverythingResult,
@@ -69,11 +74,11 @@ export function useUpdateEverything(
     canMaintain: canUpdateServer(sessionStates[index]!),
     updateState: updateStates[index]!,
   }));
-  const { targets: servers, skipped } = channelSwitch
+  const { targets: allServers, skipped } = channelSwitch
     ? collectChannelSwitchTargets(machines, channelSwitch, resolve)
     : collectServerUpdateTargets(machines, targetVersion, resolve);
   // Track-only hosts save a setting and restart nothing, so they are neither listed nor counted.
-  const moving = servers.filter((server) => server.trackOnly !== true);
+  const moving = allServers.filter((server) => server.trackOnly !== true);
   const restarts = collectRestartingMachines(machines, moving, localUpdateVersion !== null);
   const providerUpdates = useProviderUpdates();
   // A track switch moves app and servers only; provider updates stay a separate choice.
@@ -101,23 +106,37 @@ export function useUpdateEverything(
   );
 
   return {
-    hasUpdates: servers.length > 0 || providers.machines.length > 0,
+    hasUpdates: allServers.length > 0 || providers.machines.length > 0,
     ...view,
     restarts,
     run: async ({
       downloadLocal,
       installLocal,
+      unpicked = new Set(),
     }: {
       downloadLocal?: (reportError: ReportLocalUpdateError) => Promise<boolean>;
       installLocal?: (reportError: ReportLocalUpdateError) => Promise<boolean>;
+      /** Items unticked in the update dialog; everything else runs. */
+      unpicked?: ReadonlySet<string>;
     }) => {
+      const providerName = (driver: ProviderDriverKind) => PROVIDER_DISPLAY_NAMES[driver] ?? driver;
+      const providerPicked = (environmentId: EnvironmentId, driver: ProviderDriverKind) =>
+        !unpicked.has(updatePickKey.provider(environmentId, providerName(driver)));
+      const servers = allServers.filter(
+        (server) => !unpicked.has(updatePickKey.server(server.environmentId)),
+      );
+      const providerMachines = providers.machines.filter((machine) =>
+        machine.candidates.some((candidate) =>
+          providerPicked(machine.environmentId, candidate.driver),
+        ),
+      );
       const localFailures: Array<string> = [];
       const reportLocalError: ReportLocalUpdateError = (title, description) => {
         localFailures.push(`${title}: ${description}`);
       };
       const startedAt = Date.now();
       const machinesById = new Map<UpdateRunMachine["environmentId"], UpdateRunMachine>();
-      for (const machine of providers.machines) {
+      for (const machine of providerMachines) {
         machinesById.set(machine.environmentId, {
           environmentId: machine.environmentId,
           label: machine.label,
@@ -158,7 +177,7 @@ export function useUpdateEverything(
         const outcome = await runUpdateEverything({
           ...(downloadLocal ? { downloadLocal: () => downloadLocal(reportLocalError) } : {}),
           updateProviders: async () => {
-            const runs = await providers.updateAll({ quiet: true });
+            const runs = await providers.updateAll({ quiet: true, include: providerPicked });
             const outcomes = runs.map((run) => {
               const runOutcome = getProviderUpdateRunOutcome(run);
               if (runOutcome.status !== "updated") {
@@ -192,7 +211,7 @@ export function useUpdateEverything(
             );
             return outcomes;
           },
-          ...(providers.machines.length > 0
+          ...(providerMachines.length > 0
             ? {
                 stageServers: () =>
                   new Map(

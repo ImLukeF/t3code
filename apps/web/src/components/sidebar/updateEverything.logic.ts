@@ -918,3 +918,10 @@ export function describeUpdateEverything(
     rows: Array.from(rows.values()),
   };
 }
+
+/** Keys for the items the update dialog lets you untick. */
+export const updatePickKey = {
+  server: (environmentId: EnvironmentId) => `server:${environmentId}`,
+  provider: (environmentId: EnvironmentId, provider: string) =>
+    `provider:${environmentId}:${provider}`,
+};

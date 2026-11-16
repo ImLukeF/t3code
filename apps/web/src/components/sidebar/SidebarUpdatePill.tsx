@@ -210,6 +210,7 @@ function SidebarUpdateControl() {
   const [providerCheck, setProviderCheck] = useState<"button" | "dialog" | null>(null);
   const isCheckingProviders = providerCheck === "button";
   const [isConfirmingEverything, setIsConfirmingEverything] = useState(false);
+  const [unpicked, setUnpicked] = useState<ReadonlySet<string>>(() => new Set());
   const [checkAnimationKey, setCheckAnimationKey] = useState(0);
   const [releaseNotesPopoverHandle] = useState(() => PopoverCreateHandle());
   const suppressReleaseNotesFocusOpen = useRef(false);
@@ -255,8 +256,10 @@ function SidebarUpdateControl() {
     isDownloading,
     showCheckIcon,
   });
+  // With app updates off (a build without an update feed), the button still checks servers and CLIs.
+  const appUpdatesOff = state?.status === "disabled";
   const idleTooltip =
-    !showUpdateDetails && !showCheckIcon
+    !showUpdateDetails && !showCheckIcon && !appUpdatesOff
       ? getDesktopUpdateIdleTooltip(state, updatesDenial, messages)
       : null;
   const tooltip = runsEverything
@@ -274,7 +277,7 @@ function SidebarUpdateControl() {
       ? false
       : showUpdateDetails
         ? isDesktopUpdateButtonDisabled(state)
-        : !canCheckForUpdate(state);
+        : !canCheckForUpdate(state) && !appUpdatesOff;
   const isInteractionDisabled = disabled || isActionPending || isRunningEverything;
   const showReleaseNotesPopover =
     !isRunningEverything && shouldUseSidebarUpdateReleaseNotesPopover(showUpdateDetails, state);
@@ -293,7 +296,8 @@ function SidebarUpdateControl() {
     const bridge = window.desktopBridge;
     if (isInteractionDisabled) return;
 
-    if (runsEverything) {
+    if (runsEverything || appUpdatesOff) {
+      setUnpicked(new Set());
       setIsConfirmingEverything(true);
       // Machines that still cache an older latest version add their rows while the dialog is open.
       setProviderCheck("dialog");
@@ -385,6 +389,7 @@ function SidebarUpdateControl() {
         ...(bridge && action !== "none"
           ? { installLocal: (reportError) => installLocalUpdate(bridge, reportError) }
           : {}),
+        unpicked,
       }),
     );
     if (result._tag === "Failure") {
@@ -430,6 +435,14 @@ function SidebarUpdateControl() {
       restarts={everything.restarts}
       checking={providerCheck === "dialog"}
       onConfirm={() => void runEverything()}
+      unpicked={unpicked}
+      onTogglePick={(key) =>
+        setUnpicked((current) => {
+          const next = new Set(current);
+          if (!next.delete(key)) next.add(key);
+          return next;
+        })
+      }
     />
   );
 
