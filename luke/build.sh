@@ -36,10 +36,15 @@ node "$REPO/luke/sign.mjs" "$APP" "$IDENTITY" "$REPO/luke/entitlements.mac.plist
 codesign --verify --deep --strict "$APP"
 
 ditto -c -k --keepParent "$APP" "$WORK/stage/notarize.zip"
-xcrun notarytool submit "$WORK/stage/notarize.zip" \
-  --key "$NOTARY_KEY" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID" --wait \
-  | tee "$WORK/stage/notary.log"
-grep -q "status: Accepted" "$WORK/stage/notary.log"
+# The upload to Apple sometimes times out, so try it a few times.
+for attempt in 1 2 3; do
+  xcrun notarytool submit "$WORK/stage/notarize.zip" \
+    --key "$NOTARY_KEY" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID" --wait \
+    | tee "$WORK/stage/notary.log" || true
+  grep -q "status: Accepted" "$WORK/stage/notary.log" && break
+  [ "$attempt" = 3 ] && exit 1
+  sleep 30
+done
 xcrun stapler staple "$APP"
 spctl --assess --type execute "$APP"
 
