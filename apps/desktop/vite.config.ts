@@ -27,6 +27,9 @@ const publicConfigDefine = {
   __T3CODE_BUILD_USER_DATA_NAME__: JSON.stringify(
     repoEnv.T3CODE_DESKTOP_USER_DATA_NAME?.trim() ?? "",
   ),
+  __T3CODE_BUILD_SELF_UPDATE_DIR__: JSON.stringify(
+    repoEnv.T3CODE_DESKTOP_SELF_UPDATE_DIR?.trim() ?? "",
+  ),
 };
 
 export default defineConfig({
