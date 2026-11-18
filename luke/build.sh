@@ -26,6 +26,7 @@ npx -y pnpm@12.14.0 install --frozen-lockfile
 rm -rf "$WORK/out" "$WORK/stage"
 mkdir -p "$WORK/stage"
 T3CODE_DESKTOP_PRODUCT_NAME="$APP_NAME" T3CODE_DESKTOP_APP_ID="$APP_ID" \
+  T3CODE_DESKTOP_SELF_UPDATE_DIR="$REPO/luke" \
   node scripts/build-desktop-artifact.ts --platform mac --target dmg --arch arm64 \
   --build-version "$VERSION" --output-dir "$WORK/out"
 

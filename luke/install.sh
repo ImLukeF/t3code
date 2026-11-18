@@ -13,6 +13,8 @@ TARGET="/Applications/$APP_NAME.app"
 [ -d "$READY" ] || exit 0
 
 notify() {
+  # The app shows its own progress when it runs the update.
+  [ -z "${T3CODE_LUKE_FROM_APP:-}" ] || return 0
   osascript -e "display notification \"$1\" with title \"$APP_NAME\"" >/dev/null 2>&1 || true
 }
 
