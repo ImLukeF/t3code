@@ -16,7 +16,7 @@ notify() {
   osascript -e "display notification \"$1\" with title \"$APP_NAME\"" >/dev/null 2>&1 || true
 }
 
-if pgrep -f "$TARGET/Contents/MacOS/" >/dev/null; then
+if ps -axo command= | awk -v p="$TARGET/Contents/MacOS/" 'index($0, p) == 1 { found = 1 } END { exit !found }'; then
   if [ ! -f "$WORK/ready/notified" ]; then
     notify "Update $(cat "$WORK/ready/version") is ready. Quit the app to install it."
     touch "$WORK/ready/notified"
