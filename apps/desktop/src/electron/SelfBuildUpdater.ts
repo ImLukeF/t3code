@@ -1,7 +1,7 @@
-// @effect-diagnostics nodeBuiltinImport:off globalFetch:off effectFnOpportunity:off -- Stands in for electron-updater, which is promise and event based too.
+// @effect-diagnostics nodeBuiltinImport:off effectFnOpportunity:off -- Stands in for electron-updater, which is promise and event based too.
 /**
- * SelfBuildUpdater - stands in for electron-updater in a personal build: a check finds a newer
- * official release, "download" runs update.sh to rebuild on it, install swaps the app and reopens.
+ * SelfBuildUpdater - stands in for electron-updater in a personal build: update.sh rebuilds each
+ * new official release in the background, a check offers that build, install swaps it in and reopens.
  *
  * @module SelfBuildUpdater
  */
@@ -29,50 +29,9 @@ declare const __T3CODE_BUILD_SELF_UPDATE_DIR__: string | undefined;
 export const selfUpdateDir =
   typeof __T3CODE_BUILD_SELF_UPDATE_DIR__ === "undefined" ? "" : __T3CODE_BUILD_SELF_UPDATE_DIR__;
 
-const RELEASES_URL = "https://api.github.com/repos/pingdotgg/t3code/releases?per_page=20";
 const BUILD_DIR = NodePath.join(NodeOS.homedir(), ".t3-luke-build");
 const READY_VERSION_FILE = NodePath.join(BUILD_DIR, "ready", "version");
 const SCRIPT_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
-
-export interface UpstreamRelease {
-  readonly tag_name: string;
-  readonly name?: string | null;
-  readonly published_at?: string | null;
-  readonly prerelease: boolean;
-  readonly draft: boolean;
-}
-
-/** The newest release on the channel that is newer than `currentVersion`, if any. */
-export function newestReleaseAfter(
-  releases: ReadonlyArray<UpstreamRelease>,
-  channel: string,
-  currentVersion: string,
-): UpstreamRelease | null {
-  let newest: UpstreamRelease | null = null;
-  for (const release of releases) {
-    if (release.draft) continue;
-    const version = release.tag_name.replace(/^v/u, "");
-    const isNightly = version.includes("-nightly.");
-    if (channel === "nightly" ? !isNightly : release.prerelease || isNightly) continue;
-    if (compareSemverVersions(version, currentVersion) <= 0) continue;
-    if (newest === null || compareSemverVersions(version, newest.tag_name.replace(/^v/u, "")) > 0) {
-      newest = release;
-    }
-  }
-  return newest;
-}
-
-// Build steps in update.sh output, as rough progress for the update button.
-const PROGRESS_MARKERS: ReadonlyArray<readonly [RegExp, number]> = [
-  [/Rebasing|Successfully rebased|HEAD -> luke/u, 5],
-  [/Lockfile is up to date|Done in/u, 10],
-  [/Building desktop\/server\/web artifacts/u, 15],
-  [/Building mac\/dmg/u, 35],
-  [/Done\. Artifacts/u, 55],
-  [/Submission ID received/u, 65],
-  [/status: Accepted/u, 90],
-  [/staple and validate action worked/u, 95],
-];
 
 const readReadyVersion = () => {
   try {
@@ -87,7 +46,7 @@ const scriptEnv = () => ({
   USER: NodeOS.userInfo().username,
   PATH: SCRIPT_PATH,
   LANG: "en_US.UTF-8",
-  // The app shows progress and asks to restart itself, so the scripts skip their notifications.
+  // The app asks to restart itself, so install.sh skips its notifications.
   T3CODE_LUKE_FROM_APP: "1",
 });
 
@@ -96,74 +55,18 @@ const make = (dir: string) => {
   let channel = "nightly";
   let offeredVersion: string | null = null;
 
+  // update.sh rebuilds each new Nightly in the background; an update is offered once it's built.
   const check = async () => {
     events.emit("checking-for-update");
-    const response = await fetch(RELEASES_URL, {
-      headers: { Accept: "application/vnd.github+json", "User-Agent": "t3code-self-build" },
-    });
-    if (!response.ok) throw new Error(`GitHub releases returned ${response.status}.`);
-    const releases = (await response.json()) as ReadonlyArray<UpstreamRelease>;
-    const release = newestReleaseAfter(releases, channel, Electron.app.getVersion());
-    if (release === null) {
+    const ready = readReadyVersion();
+    if (ready === "" || compareSemverVersions(ready, Electron.app.getVersion()) <= 0) {
       offeredVersion = null;
       events.emit("update-not-available");
       return;
     }
-    offeredVersion = release.tag_name.replace(/^v/u, "");
-    events.emit("update-available", {
-      version: offeredVersion,
-      releaseName: release.name ?? null,
-      ...(release.published_at ? { releaseDate: release.published_at } : {}),
-    });
+    offeredVersion = ready;
+    events.emit("update-available", { version: ready, releaseName: null });
   };
-
-  const build = () =>
-    new Promise<string>((resolve, reject) => {
-      const target = offeredVersion;
-      if (target === null) {
-        reject(new Error("No update to build."));
-        return;
-      }
-      // A build the daily job already finished only needs installing.
-      if (readReadyVersion() === target) {
-        resolve(target);
-        return;
-      }
-      const child = NodeChildProcess.spawn(
-        "/bin/bash",
-        [NodePath.join(dir, "update.sh"), "--force"],
-        {
-          cwd: dir,
-          env: scriptEnv(),
-          stdio: ["ignore", "pipe", "pipe"],
-        },
-      );
-      const log = NodeFS.createWriteStream(NodePath.join(BUILD_DIR, "update.log"), { flags: "a" });
-      let percent = 0;
-      let tail = "";
-      const onOutput = (chunk: Buffer) => {
-        log.write(chunk);
-        const text = chunk.toString("utf8");
-        tail = (tail + text).slice(-2000);
-        for (const [marker, value] of PROGRESS_MARKERS) {
-          if (value > percent && marker.test(text)) percent = value;
-        }
-        events.emit("download-progress", { percent });
-      };
-      child.stdout.on("data", onOutput);
-      child.stderr.on("data", onOutput);
-      child.on("error", reject);
-      child.on("close", (code) => {
-        log.end();
-        const built = readReadyVersion();
-        if (code === 0 && built !== "") {
-          resolve(built);
-          return;
-        }
-        const lastLines = tail.trim().split("\n").slice(-6).join("\n");
-        reject(new Error(`The rebuild failed (exit ${code}). ${lastLines}`));
-      });
-    });
 
   return ElectronUpdater.of({
     setFeedURL: () => Effect.void,
@@ -184,7 +87,12 @@ const make = (dir: string) => {
     }),
     downloadUpdate: Effect.tryPromise({
       try: async () => {
-        const version = await build();
+        const version = readReadyVersion();
+        if (offeredVersion === null || version !== offeredVersion) {
+          throw new Error(
+            "The new build is no longer waiting to install. Check for updates again.",
+          );
+        }
         events.emit("download-progress", { percent: 100 });
         events.emit("update-downloaded", { version });
       },
