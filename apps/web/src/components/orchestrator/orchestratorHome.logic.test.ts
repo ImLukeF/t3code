@@ -9,8 +9,9 @@ import {
   homeThreadKey,
   resolveOrchestratorThread,
   selectHomeThreadRows,
-  selectShipQueue,
-  selectShipRequests,
+  selectDeployQueue,
+  selectShipEvents,
+  selectShippedToday,
   shipRequestText,
 } from "./orchestratorHome.logic";
 
@@ -135,7 +136,7 @@ describe("formatHomeTimer", () => {
   });
 });
 
-describe("ship queue", () => {
+describe("deploy queue", () => {
   const pr = (number: number, snapshot: Record<string, unknown>) => ({
     number,
     url: `https://example.invalid/pr/${number}`,
@@ -143,48 +144,77 @@ describe("ship queue", () => {
   });
   const withPr = (id: string, snapshot: Record<string, unknown>) =>
     thread(id, { pullRequests: [pr(1, snapshot)] as never });
+  const link = (id: string) => `[${id}](t3-thread://v2/env/${id})`;
+  const message = (type: string, text: string, at: number) => ({
+    type,
+    text,
+    startedAt: null,
+    updatedAt: DateTime.makeUnsafe(at),
+  });
 
-  it("finds a ship request in the orchestrator's chat by the thread it links", () => {
+  it("reads requests and update lines from the chat, and nothing else", () => {
     const asked = thread("asked");
-    const requests = selectShipRequests(
+    const events = selectShipEvents(
       items(
-        { type: "user_message", text: "please look at asked", updatedAt: DateTime.makeUnsafe(1) },
-        {
-          type: "user_message",
-          text: shipRequestText(asked),
-          updatedAt: DateTime.makeUnsafe(NOW),
-        },
+        message("user_message", `please look at ${link("asked")}, it is live`, 1),
+        message("user_message", shipRequestText(asked), 10),
+        message(
+          "assistant_message",
+          [
+            `On it. Ship update: ${link("asked")} live`,
+            `- Ship update: ${link("asked")} merged`,
+            `Ship update: [failed deploy fix](t3-thread://v2/env/other) deploying`,
+            `Ship update: ${link("asked")} soon`,
+          ].join("\n"),
+          20,
+        ),
       ),
       "env" as never,
     );
-    expect([...requests]).toEqual([[homeThreadKey(asked), NOW]]);
+    expect(events).toEqual([
+      { threadKey: homeThreadKey(asked), status: "requested", at: 10 },
+      { threadKey: homeThreadKey(asked), status: "merged", at: 20 },
+      { threadKey: homeThreadKey(thread("other")), status: "deploying", at: 20 },
+    ]);
   });
 
-  it("orders requested, ready, running checks and blocked, and settles a request on merge", () => {
-    const requested = thread("requested");
-    const shipped = withPr("shipped", { state: "merged", mergedAt: "2026-01-01T11:00:00.000Z" });
-    const queue = selectShipQueue(
+  it("shows each thread at its newest step, and pull requests where nothing was recorded", () => {
+    const key = (id: string) => homeThreadKey(thread(id));
+    const queue = selectDeployQueue(
       [
         withPr("conflict", { state: "open", mergeability: "conflicting" }),
-        withPr("pending", { state: "open", checksState: "pending" }),
-        withPr("green", { state: "open", checksState: "passing" }),
+        withPr("pending", { state: "open", checksState: "passing" }),
         withPr("old-merge", { state: "merged", mergedAt: "2025-12-01T00:00:00.000Z" }),
-        shipped,
-        requested,
+        withPr("shipped", { state: "merged", mergedAt: "2026-01-01T11:00:00.000Z" }),
+        thread("requested"),
         thread("no-pr"),
       ],
-      new Map([
-        [homeThreadKey(requested), NOW - 60_000],
-        [homeThreadKey(shipped), NOW - 60_000],
-      ]),
+      [
+        { threadKey: key("requested"), status: "requested", at: NOW - 60_000 },
+        { threadKey: key("shipped"), status: "requested", at: NOW - 4 * 3_600_000 },
+        { threadKey: key("shipped"), status: "deploying", at: NOW - 1_800_000 },
+        { threadKey: key("shipped"), status: "live", at: NOW - 600_000 },
+      ],
       NOW,
     );
     expect(queue.map((entry) => [entry.thread.id, entry.status])).toEqual([
       ["requested", "requested"],
-      ["green", "ready"],
-      ["pending", "checks"],
+      ["pending", "pending"],
       ["conflict", "blocked"],
-      ["shipped", "merged"],
+      ["shipped", "live"],
     ]);
+    const live = queue.at(-1);
+    expect(live === undefined ? null : live.at - live.startedAt).toBe(4 * 3_600_000 - 600_000);
+  });
+
+  it("counts a thread as shipped today for a merge or a recorded live deploy", () => {
+    const merged = withPr("merged", { state: "merged", mergedAt: "2026-01-01T11:00:00.000Z" });
+    const live = thread("live");
+    const shipped = selectShippedToday(
+      [merged, live, thread("neither")],
+      [{ threadKey: homeThreadKey(live), status: "live", at: NOW - 1000 }],
+      NOW,
+    );
+    expect(shipped).toEqual([merged, live]);
   });
 });

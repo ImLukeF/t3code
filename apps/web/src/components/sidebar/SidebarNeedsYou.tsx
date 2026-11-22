@@ -1,12 +1,13 @@
-/* oxlint-disable t3code/no-untranslated-copy -- T3 Luke fork screen, English only; keeps the generated catalogs matching upstream */
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { ThreadPendingApproval } from "@t3tools/client-runtime/state/thread-requests";
 import type { EnvironmentId, ProviderApprovalDecision, ThreadId } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
+import { msg, T, useGT, useMessages } from "gt-react";
 import { useState } from "react";
 import { create } from "zustand";
 
+import type { MessageResolver } from "~/i18n/messages";
 import { cn } from "~/lib/utils";
 import { environmentThreadDetails, threadEnvironment } from "~/state/threads";
 import { useOrchestrationCommand } from "~/state/use-orchestration-command";
@@ -26,9 +27,9 @@ export function announceComposerSent(environmentId: EnvironmentId, threadId: Thr
 }
 
 const NEEDS_YOU_LABEL: Partial<Record<SidebarThreadStatus, string>> = {
-  approval: "Approval",
-  input: "Input",
-  request: "Request",
+  approval: msg("Approval", { $context: "a thread is waiting for the user to approve something" }),
+  input: msg("Input", { $context: "a thread is waiting for the user to answer a question" }),
+  request: msg("Request", { $context: "a guest sent a message that waits for the owner" }),
 };
 
 /** Threads blocked on the user: an approval, a question, or a guest request. */
@@ -111,7 +112,9 @@ export function NextUpChip(props: {
         onClick={() => window.dispatchEvent(new Event(GO_NEXT_UP_EVENT))}
         className="absolute end-3 bottom-2 z-20 flex max-w-[min(26rem,calc(100%-1.5rem))] cursor-pointer items-center gap-2 rounded-full border border-border bg-popover/80 px-3 py-1 text-xs text-foreground shadow-sm backdrop-blur-md outline-none hover:bg-accent/15 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
       >
-        <span className="shrink-0 text-muted-foreground">Next:</span>
+        <span className="shrink-0 text-muted-foreground">
+          <T>Next:</T>
+        </span>
         <span className="min-w-0 truncate font-medium">{nextUp.target.title}</span>
         <kbd className="shrink-0 font-sans text-muted-foreground">⌥⌘J</kbd>
       </button>
@@ -120,27 +123,35 @@ export function NextUpChip(props: {
 }
 
 const APPROVAL_KIND_LABEL: Record<ThreadPendingApproval["requestKind"], string> = {
-  command: "Run a command",
-  "file-read": "Read a file",
-  "file-change": "Change files",
-  "mcp-elicitation": "Answer a tool",
-  permission: "Grant a permission",
+  command: msg("Run a command"),
+  "file-read": msg("Read a file"),
+  "file-change": msg("Change files"),
+  "mcp-elicitation": msg("Answer a tool"),
+  permission: msg("Grant a permission"),
 };
 
-/** One line saying what a blocked thread wants, for its sidebar row. */
-function RowRequestText(props: { readonly thread: EnvironmentThreadShell }) {
-  const { thread } = props;
+/** What an approval asks for, in the agent's own words when it gave any. */
+function approvalRequestText(approval: ThreadPendingApproval, resolve: MessageResolver): string {
+  return approval.detail ?? approval.reason ?? resolve(APPROVAL_KIND_LABEL[approval.requestKind]);
+}
+
+/** One line for whatever a blocked thread is waiting on, or null when nothing is loaded yet. */
+export function useThreadRequestLine(thread: EnvironmentThreadShell): string | null {
+  const gt = useGT();
+  const m = useMessages();
   const requests = useAtomValue(
     environmentThreadDetails.pendingRequestsAtom(scopeThreadRef(thread.environmentId, thread.id)),
   );
-  const approval = requests?.approvals[0] ?? null;
-  const question = requests?.userInputs[0]?.questions[0] ?? null;
-  const text =
-    approval !== null
-      ? `Approve: ${approval.detail ?? approval.reason ?? APPROVAL_KIND_LABEL[approval.requestKind]}`
-      : question !== null
-        ? question.question
-        : null;
+  const approval = requests?.approvals[0];
+  if (approval !== undefined) {
+    return gt("Approve: {request}", { request: approvalRequestText(approval, m) });
+  }
+  return requests?.userInputs[0]?.questions[0]?.question ?? null;
+}
+
+/** One line saying what a blocked thread wants, for its sidebar row. */
+function RowRequestText(props: { readonly thread: EnvironmentThreadShell }) {
+  const text = useThreadRequestLine(props.thread);
   if (text === null) return null;
   return (
     <span data-row-request="" className="min-w-0 truncate text-xs text-warning-foreground">
@@ -160,12 +171,13 @@ export function SidebarRowRequest(props: { readonly thread: EnvironmentThreadShe
  * What the thread is waiting on, with Approve / Deny for approvals. Mounting this
  * subscribes to the thread's detail, so it only renders for threads in the list.
  */
-export function NeedsYouRequest(props: { readonly thread: EnvironmentThreadShell }) {
+function NeedsYouRequest(props: { readonly thread: EnvironmentThreadShell }) {
   const { thread } = props;
   const requests = useAtomValue(
     environmentThreadDetails.pendingRequestsAtom(scopeThreadRef(thread.environmentId, thread.id)),
   );
   const respondToApproval = useOrchestrationCommand(threadEnvironment.respondToApproval);
+  const m = useMessages();
   const [responding, setResponding] = useState(false);
   const approval = requests?.approvals[0] ?? null;
   const question = requests?.userInputs[0]?.questions[0] ?? null;
@@ -183,11 +195,11 @@ export function NeedsYouRequest(props: { readonly thread: EnvironmentThreadShell
     return (
       <div className="flex flex-col gap-1.5 px-2 pb-1.5">
         <p className="truncate font-mono text-xs text-muted-foreground">
-          {approval.detail ?? approval.reason ?? APPROVAL_KIND_LABEL[approval.requestKind]}
+          {approvalRequestText(approval, m)}
         </p>
         <div className="flex gap-1.5">
           <Button size="compact" disabled={!canRespond} onClick={() => void respond("accept")}>
-            Approve
+            <T>Approve</T>
           </Button>
           <Button
             size="compact"
@@ -195,7 +207,7 @@ export function NeedsYouRequest(props: { readonly thread: EnvironmentThreadShell
             disabled={!canRespond}
             onClick={() => void respond("decline")}
           >
-            Deny
+            <T>Deny</T>
           </Button>
         </div>
       </div>
@@ -216,6 +228,7 @@ function NeedsYouRow(props: {
 }) {
   const { thread } = props;
   const tint = useEnvironmentTintStyle(thread.environmentId);
+  const m = useMessages();
   return (
     <li className="rounded-md bg-background/40" style={tint}>
       <button
@@ -229,7 +242,7 @@ function NeedsYouRow(props: {
       >
         <span className="min-w-0 flex-1 truncate">{thread.title}</span>
         <span className="shrink-0 text-xs font-medium text-warning-foreground">
-          {NEEDS_YOU_LABEL[resolveSidebarThreadStatus(thread)]}
+          {m(NEEDS_YOU_LABEL[resolveSidebarThreadStatus(thread)] ?? "")}
         </span>
       </button>
       <NeedsYouRequest thread={thread} />
@@ -244,15 +257,18 @@ export function SidebarNeedsYou(props: {
   readonly threadKey: (thread: EnvironmentThreadShell) => string;
   readonly onSelect: (thread: EnvironmentThreadShell) => void;
 }) {
+  const gt = useGT();
   if (props.threads.length === 0) return null;
   return (
     <section
       data-sidebar-needs-you=""
-      aria-label="Needs you"
+      aria-label={gt("Needs you")}
       className="mx-2 mb-2 rounded-lg border border-warning/30 bg-warning/8 p-1"
     >
       <div className="flex items-center justify-between px-2 pt-0.5 pb-1 text-xs font-medium text-warning-foreground">
-        <span>Needs you</span>
+        <span>
+          <T>Needs you</T>
+        </span>
         <span className="tabular-nums">{props.threads.length}</span>
       </div>
       <ul className="flex flex-col gap-px">

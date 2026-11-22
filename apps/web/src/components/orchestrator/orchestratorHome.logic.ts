@@ -1,4 +1,3 @@
-/* oxlint-disable t3code/no-untranslated-copy -- T3 Luke fork screen, English only; keeps the generated catalogs matching upstream */
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type {
   EnvironmentProject,
@@ -12,7 +11,9 @@ import {
 } from "@t3tools/contracts";
 import { formatThreadLink, threadLinkRefs } from "@t3tools/shared/threadLinks";
 import * as DateTime from "effect/DateTime";
+import { msg } from "gt-react";
 
+import { m, type MessageResolver } from "~/i18n/messages";
 import { hasUnseenCompletion, resolveSidebarRowStatus } from "../Sidebar.logic";
 
 export type HomeStage =
@@ -26,14 +27,14 @@ export type HomeStage =
   | "quiet";
 
 export const HOME_STAGE_LABEL: Record<HomeStage, string> = {
-  "needs-you": "Needs you",
-  thinking: "Thinking",
-  code: "Code",
-  terminal: "Terminal",
-  checks: "Checks",
-  ready: "Ready",
-  failed: "Failed",
-  quiet: "Quiet",
+  "needs-you": msg("Needs you", { $context: "thread stage, the thread is waiting on the user" }),
+  thinking: msg("Thinking", { $context: "thread stage" }),
+  code: msg("Code", { $context: "thread stage, the agent is editing files" }),
+  terminal: msg("Terminal", { $context: "thread stage, the agent is running a command" }),
+  checks: msg("Checks", { $context: "thread stage, the agent is running tests or checks" }),
+  ready: msg("Ready", { $context: "thread stage, the agent finished" }),
+  failed: msg("Failed", { $context: "thread stage" }),
+  quiet: msg("Quiet", { $context: "thread stage, nothing is happening" }),
 };
 
 /** What a row is, from the thread list alone; a busy row refines its stage from its latest item. */
@@ -161,36 +162,32 @@ export function selectHomeThreadRows(
 }
 
 /** A quiet row's line, from the thread list alone: its pull request, or that it is idle. */
-export function quietLine(thread: EnvironmentThreadShell): string {
+export function quietLine(thread: EnvironmentThreadShell, resolve: MessageResolver = m): string {
   const link = thread.pullRequests.findLast((candidate) => candidate.snapshot !== null);
   const snapshot = link?.snapshot;
-  if (link === undefined || snapshot == null) return "Idle";
-  const state = snapshot.isDraft && snapshot.state === "open" ? "draft" : snapshot.state;
-  const checks =
-    snapshot.state === "open" && snapshot.checksState != null
-      ? ` · checks ${snapshot.checksState}`
-      : "";
-  return `PR #${link.number} ${state}${checks} · ${snapshot.title}`;
+  if (link === undefined || snapshot == null) {
+    return resolve(msg("Idle", { $context: "a thread that is doing nothing" }));
+  }
+  const values = { number: link.number, title: snapshot.title };
+  if (snapshot.state === "merged") return resolve(msg("PR #{number} merged · {title}", values));
+  if (snapshot.state === "closed") return resolve(msg("PR #{number} closed · {title}", values));
+  if (snapshot.isDraft) return resolve(msg("PR #{number} draft · {title}", values));
+  switch (snapshot.checksState) {
+    case "passing":
+      return resolve(msg("PR #{number} open, checks passing · {title}", values));
+    case "failing":
+      return resolve(msg("PR #{number} open, checks failing · {title}", values));
+    case "pending":
+      return resolve(msg("PR #{number} open, checks running · {title}", values));
+    default:
+      return resolve(msg("PR #{number} open · {title}", values));
+  }
 }
 
 function isSameLocalDay(iso: string | null | undefined, nowMs: number): boolean {
   if (iso == null) return false;
   const time = Date.parse(iso);
   return !Number.isNaN(time) && new Date(time).toDateString() === new Date(nowMs).toDateString();
-}
-
-/** Pull requests linked to a thread that merged today, each counted once. */
-export function countMergedToday(
-  threads: readonly EnvironmentThreadShell[],
-  nowMs: number,
-): number {
-  const merged = new Set<string>();
-  for (const thread of threads) {
-    for (const link of thread.pullRequests) {
-      if (isSameLocalDay(link.snapshot?.mergedAt, nowMs)) merged.add(link.url);
-    }
-  }
-  return merged.size;
 }
 
 export interface HomeActivityEntry {
@@ -205,6 +202,7 @@ export interface HomeActivityEntry {
 export function selectRecentActivity(
   threads: readonly EnvironmentThreadShell[],
   limit: number,
+  resolve: MessageResolver = m,
 ): readonly HomeActivityEntry[] {
   const entries: HomeActivityEntry[] = [];
   for (const thread of threads) {
@@ -217,7 +215,15 @@ export function selectRecentActivity(
           key: `${key}:pr:${link.url}`,
           thread,
           kind: "merged",
-          text: `Merged ${link.snapshot?.title ?? "its pull request"}`,
+          text:
+            link.snapshot?.title === undefined
+              ? resolve(msg("Merged its pull request"))
+              : resolve(
+                  msg("Merged {title}", {
+                    title: link.snapshot.title,
+                    $context: "a thread merged the pull request with this title",
+                  }),
+                ),
           at: mergedAt,
         });
       }
@@ -230,10 +236,10 @@ export function selectRecentActivity(
         thread,
         kind: failed ? "failed" : "finished",
         text: failed
-          ? "Run failed"
+          ? resolve(msg("Run failed"))
           : run.status === "interrupted" || run.status === "cancelled"
-            ? "Run stopped"
-            : "Finished its run",
+            ? resolve(msg("Run stopped"))
+            : resolve(msg("Finished its run")),
         at: run.completedAt,
       });
     } else if (run?.startedAt != null) {
@@ -241,7 +247,7 @@ export function selectRecentActivity(
         key: `${key}:run`,
         thread,
         kind: "started",
-        text: "Started working",
+        text: resolve(msg("Started working")),
         at: run.startedAt,
       });
     }
@@ -281,6 +287,7 @@ export interface HomeActivity {
 /** The stage and one line for a running thread, from the newest item that says something. */
 export function describeLatestActivity(
   items: ReadonlyArray<OrchestrationV2ProjectedTurnItem>,
+  resolve: MessageResolver = m,
 ): HomeActivity | null {
   const oldest = Math.max(0, items.length - ACTIVITY_SCAN_LIMIT);
   for (let index = items.length - 1; index >= oldest; index -= 1) {
@@ -295,7 +302,10 @@ export function describeLatestActivity(
         return { stage: CHECK_COMMAND.test(command) ? "checks" : "terminal", line: `$ ${command}` };
       }
       case "file_change":
-        return { stage: "code", line: `Editing ${item.fileName.split("/").at(-1)}` };
+        return {
+          stage: "code",
+          line: resolve(msg("Editing {file}", { file: item.fileName.split("/").at(-1) ?? "" })),
+        };
       case "reasoning":
       case "assistant_message": {
         const line = liveThoughtLine(lastLine(item.text));
@@ -303,9 +313,21 @@ export function describeLatestActivity(
         return { stage: "thinking", line };
       }
       case "file_search":
-        return { stage: "thinking", line: `Searching ${item.pattern ?? "files"}` };
+        return {
+          stage: "thinking",
+          line:
+            item.pattern === undefined
+              ? resolve(msg("Searching files"))
+              : resolve(msg("Searching {pattern}", { pattern: item.pattern })),
+        };
       case "web_search":
-        return { stage: "thinking", line: `Searching the web for ${item.patterns?.[0] ?? "…"}` };
+        return {
+          stage: "thinking",
+          line:
+            item.patterns?.[0] === undefined
+              ? resolve(msg("Searching the web"))
+              : resolve(msg("Searching the web for {query}", { query: item.patterns[0] })),
+        };
       case "todo_list": {
         const step = item.steps.find((candidate) => candidate.status === "running");
         if (step === undefined) continue;
@@ -314,11 +336,20 @@ export function describeLatestActivity(
       case "subagent":
         return {
           stage: "thinking",
-          line: `Subagent: ${liveThoughtLine(firstLine(item.progress ?? item.prompt))}`,
+          line: resolve(
+            msg("Subagent: {line}", {
+              line: liveThoughtLine(firstLine(item.progress ?? item.prompt)),
+            }),
+          ),
         };
       case "dynamic_tool":
         if (item.toolName === null) continue;
-        return { stage: "thinking", line: `Using ${item.toolName}` };
+        return {
+          stage: "thinking",
+          line: resolve(
+            msg("Using {tool}", { tool: item.toolName, $context: "the agent is using this tool" }),
+          ),
+        };
       default:
         continue;
     }
@@ -352,101 +383,196 @@ export function formatHomeTimer(durationMs: number): string {
 }
 
 const SHIP_REQUEST_PREFIX = "Ship request:";
+const SHIP_UPDATE_PREFIX = "Ship update:";
 
-/** The message Ship sends the orchestrator. Its opening words are how the queue finds it again. */
+/**
+ * The message Ship sends the orchestrator. It stays English: it is an agent prompt, and its
+ * opening words and the update lines it asks for are how the deploy queue reads the chat back.
+ */
 export function shipRequestText(thread: EnvironmentThreadShell): string {
   const link = formatThreadLink(
     { environmentId: thread.environmentId, threadId: thread.id },
     thread.title,
   );
-  return `${SHIP_REQUEST_PREFIX} merge and deploy ${link}, then report back here once it is live or if anything blocks it.`;
+  return [
+    `${SHIP_REQUEST_PREFIX} merge and deploy ${link}.`,
+    `Record each step in this chat on its own line, written as "${SHIP_UPDATE_PREFIX}" then the thread link then one of: committed, pending merge, merged, deploying, live, failed.`,
+    "Report back here once it is live or if anything blocks it.",
+  ].join(" ");
 }
 
-/** When each thread's ship was last asked for, by thread key, read from the orchestrator's chat. */
-export function selectShipRequests(
-  items: ReadonlyArray<OrchestrationV2ProjectedTurnItem>,
-  environmentId: EnvironmentId,
-): ReadonlyMap<string, number> {
-  const requests = new Map<string, number>();
-  for (const { item } of items) {
-    if (item.type !== "user_message" || !item.text.startsWith(SHIP_REQUEST_PREFIX)) continue;
-    for (const ref of threadLinkRefs(item.text, environmentId)) {
-      requests.set(scopedThreadKey(ref), DateTime.toEpochMillis(item.updatedAt));
-    }
-  }
-  return requests;
-}
+export type DeployStatus =
+  | "requested"
+  | "committed"
+  | "pending"
+  | "checks"
+  | "blocked"
+  | "draft"
+  | "merged"
+  | "deploying"
+  | "live"
+  | "failed";
 
-export type ShipStatus = "requested" | "ready" | "checks" | "blocked" | "draft" | "merged";
-
-export const SHIP_STATUS_LABEL: Record<ShipStatus, string> = {
-  requested: "Ship requested",
-  ready: "Ready to ship",
-  checks: "Checks running",
-  blocked: "Blocked",
-  draft: "Draft",
-  merged: "Merged",
+export const DEPLOY_STATUS_LABEL: Record<DeployStatus, string> = {
+  requested: msg("Ship requested", { $context: "the user asked for this work to be released" }),
+  committed: msg("Committed", { $context: "deploy pipeline step, the work is committed" }),
+  pending: msg("Pending merge", { $context: "deploy pipeline step" }),
+  checks: msg("Checks running", { $context: "pull request status" }),
+  blocked: msg("Blocked", { $context: "pull request status, failing checks or conflicts" }),
+  draft: msg("Draft", { $context: "pull request state" }),
+  merged: msg("Merged", { $context: "pull request state" }),
+  deploying: msg("Deploying", { $context: "deploy pipeline step" }),
+  live: msg("Live", { $context: "deploy pipeline step, the release is live" }),
+  failed: msg("Failed", { $context: "deploy pipeline step" }),
 };
 
-export interface ShipQueueEntry {
-  readonly thread: EnvironmentThreadShell;
-  readonly status: ShipStatus;
-  /** The pull request's number and title, when the thread has one. */
-  readonly pullRequest: string | null;
-  readonly at: string;
+/** A recorded step: a Ship request, or a "Ship update:" line someone wrote in the chat. */
+export interface ShipEvent {
+  readonly threadKey: string;
+  readonly status: DeployStatus;
+  readonly at: number;
 }
 
-const SHIP_ORDER: Record<ShipStatus, number> = {
-  requested: 0,
-  ready: 1,
-  checks: 2,
-  blocked: 3,
-  draft: 4,
-  merged: 5,
+const UPDATE_STATUS: ReadonlyArray<readonly [RegExp, DeployStatus]> = [
+  [/\bpending merge\b/i, "pending"],
+  [/\bcommitted\b/i, "committed"],
+  [/\bmerged\b/i, "merged"],
+  [/\bdeploying\b/i, "deploying"],
+  [/\blive\b/i, "live"],
+  [/\bfailed\b/i, "failed"],
+];
+
+/** Ship requests and updates recorded in the orchestrator's chat, oldest first. */
+export function selectShipEvents(
+  items: ReadonlyArray<OrchestrationV2ProjectedTurnItem>,
+  environmentId: EnvironmentId,
+): readonly ShipEvent[] {
+  const events: ShipEvent[] = [];
+  for (const { item } of items) {
+    if (item.type !== "user_message" && item.type !== "assistant_message") continue;
+    const at = DateTime.toEpochMillis(item.startedAt ?? item.updatedAt);
+    if (item.type === "user_message" && item.text.startsWith(SHIP_REQUEST_PREFIX)) {
+      for (const ref of threadLinkRefs(item.text, environmentId)) {
+        events.push({ threadKey: scopedThreadKey(ref), status: "requested", at });
+      }
+      continue;
+    }
+    if (!item.text.includes(SHIP_UPDATE_PREFIX)) continue;
+    for (const line of item.text.split("\n")) {
+      const start = line.indexOf(SHIP_UPDATE_PREFIX);
+      // Only a line that opens with the marker, after list or quote markup, is an update.
+      if (start === -1 || /[^\s>*\-\d.]/.test(line.slice(0, start))) continue;
+      const update = line.slice(start + SHIP_UPDATE_PREFIX.length);
+      // The status is read from the words around the link, never from the thread's title.
+      const words = update.replace(/\[[^\]]*\]\([^)]*\)|<[^>]*>/g, " ");
+      const status = UPDATE_STATUS.find(([pattern]) => pattern.test(words))?.[1];
+      if (status === undefined) continue;
+      for (const ref of threadLinkRefs(update, environmentId)) {
+        events.push({ threadKey: scopedThreadKey(ref), status, at });
+      }
+    }
+  }
+  return events;
+}
+
+export interface DeployQueueEntry {
+  readonly thread: EnvironmentThreadShell;
+  readonly status: DeployStatus;
+  /** The pull request's number and title, when the thread has one. */
+  readonly pullRequest: string | null;
+  /** When it reached this status. */
+  readonly at: number;
+  /** When its first recorded step happened, for the total once it is live. */
+  readonly startedAt: number;
+}
+
+const DEPLOY_ORDER: Record<DeployStatus, number> = {
+  failed: 0,
+  deploying: 1,
+  requested: 2,
+  pending: 3,
+  checks: 4,
+  blocked: 5,
+  committed: 6,
+  draft: 7,
+  merged: 8,
+  live: 9,
 };
 
 /**
- * What can be known about shipping without deploy tracking: each thread's newest pull request
- * (open, or merged today) and the threads a ship was asked for. A merge settles a request.
+ * Where each thread is on its way out: its pull request (open, or merged) and the steps recorded
+ * in the orchestrator's chat, whichever is newest. Deploy steps exist only where someone recorded
+ * them. Anything settled more than a day ago drops off.
  */
-export function selectShipQueue(
+export function selectDeployQueue(
   threads: readonly EnvironmentThreadShell[],
-  requests: ReadonlyMap<string, number>,
+  events: readonly ShipEvent[],
   nowMs: number,
-): readonly ShipQueueEntry[] {
-  const entries: ShipQueueEntry[] = [];
+): readonly DeployQueueEntry[] {
+  const entries: DeployQueueEntry[] = [];
   for (const thread of threads) {
     if (!isHomeThread(thread)) continue;
+    const key = homeThreadKey(thread);
     const link = thread.pullRequests.findLast((candidate) => candidate.snapshot !== null);
     const snapshot = link?.snapshot ?? null;
     const pullRequest =
       link === undefined || snapshot === null ? null : `#${link.number} ${snapshot.title}`;
-    const requestedAt = requests.get(homeThreadKey(thread));
-    if (snapshot?.state === "merged") {
-      if (!isSameLocalDay(snapshot.mergedAt, nowMs) || snapshot.mergedAt == null) continue;
-      entries.push({ thread, status: "merged", pullRequest, at: snapshot.mergedAt });
-      continue;
+    const steps = events.filter(
+      (event) => event.threadKey === key && nowMs - event.at < QUIET_WINDOW_MS,
+    );
+    const mergedAt = snapshot?.mergedAt == null ? Number.NaN : Date.parse(snapshot.mergedAt);
+    if (!Number.isNaN(mergedAt) && nowMs - mergedAt < QUIET_WINDOW_MS) {
+      steps.push({ threadKey: key, status: "merged", at: mergedAt });
     }
-    if (requestedAt !== undefined && nowMs - requestedAt < QUIET_WINDOW_MS) {
+    const latest = steps.reduce<ShipEvent | null>(
+      (newest, step) => (newest === null || step.at >= newest.at ? step : newest),
+      null,
+    );
+    if (latest !== null) {
       entries.push({
         thread,
-        status: "requested",
+        status: latest.status,
         pullRequest,
-        at: new Date(requestedAt).toISOString(),
+        at: latest.at,
+        startedAt: Math.min(...steps.map((step) => step.at)),
       });
       continue;
     }
     if (snapshot === null || snapshot.state !== "open") continue;
-    const status: ShipStatus = snapshot.isDraft
+    const status: DeployStatus = snapshot.isDraft
       ? "draft"
       : snapshot.checksState === "failing" || snapshot.mergeability === "conflicting"
         ? "blocked"
         : snapshot.checksState === "pending"
           ? "checks"
-          : "ready";
-    entries.push({ thread, status, pullRequest, at: snapshot.updatedAt ?? thread.updatedAt });
+          : "pending";
+    const at = Date.parse(snapshot.updatedAt ?? thread.updatedAt);
+    entries.push({ thread, status, pullRequest, at, startedAt: at });
   }
-  return entries.toSorted(
-    (a, b) => SHIP_ORDER[a.status] - SHIP_ORDER[b.status] || b.at.localeCompare(a.at),
+  return entries.toSorted((a, b) => DEPLOY_ORDER[a.status] - DEPLOY_ORDER[b.status] || b.at - a.at);
+}
+
+/** Threads whose work went out today: a pull request merged, or a deploy recorded as live. */
+export function selectShippedToday(
+  threads: readonly EnvironmentThreadShell[],
+  events: readonly ShipEvent[],
+  nowMs: number,
+): readonly EnvironmentThreadShell[] {
+  const today = new Date(nowMs).toDateString();
+  const live = new Set(
+    events
+      .filter((event) => event.status === "live" && new Date(event.at).toDateString() === today)
+      .map((event) => event.threadKey),
   );
+  return threads.filter(
+    (thread) =>
+      isHomeThread(thread) &&
+      (live.has(homeThreadKey(thread)) ||
+        thread.pullRequests.some((link) => isSameLocalDay(link.snapshot?.mergedAt, nowMs))),
+  );
+}
+
+/** A row for any thread, for lists that are not the default one. */
+export function homeThreadRow(thread: EnvironmentThreadShell): HomeThreadRow {
+  return { thread, state: resolveHomeThreadState(thread) };
 }

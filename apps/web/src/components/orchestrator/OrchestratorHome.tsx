@@ -1,5 +1,3 @@
-/* oxlint-disable t3code/no-untranslated-copy -- T3 Luke fork screen, English only; keeps the generated catalogs matching upstream */
-import { useAtomValue } from "@effect/atom-react";
 import { toServerClock } from "@t3tools/client-runtime/clock";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
@@ -8,6 +6,7 @@ import {
 } from "@t3tools/client-runtime/state/models";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { msg, T, useGT, useMessages } from "gt-react";
 import { BotIcon, CheckIcon, type LucideIcon, PlayIcon, XIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
@@ -19,7 +18,7 @@ import { cn, newMessageId } from "~/lib/utils";
 import { deriveProviderEntriesByEnvironment } from "~/providerInstances";
 import { useProjects, useThreadVisibleTurnItems, useVisibleThreadShells } from "~/state/entities";
 import { useEnvironmentProviders } from "~/state/environments";
-import { environmentThreadDetails, threadEnvironment } from "~/state/threads";
+import { threadEnvironment } from "~/state/threads";
 import { useOrchestrationCommand } from "~/state/use-orchestration-command";
 import { buildThreadRouteParams } from "~/threadRoutes";
 import ChatView from "../ChatView";
@@ -27,29 +26,30 @@ import { BackgroundThreadContext } from "../chat/backgroundThread";
 import { getTriggerDisplayModelName } from "../chat/providerIconUtils";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { RelativeTime } from "../RelativeTime";
-import { NeedsYouRequest } from "../sidebar/SidebarNeedsYou";
+import { useThreadRequestLine } from "../sidebar/SidebarNeedsYou";
 import { Button } from "../ui/button";
 import { SidebarInset } from "../ui/sidebar";
 import {
-  countMergedToday,
+  DEPLOY_STATUS_LABEL,
   describeLastReply,
   describeLatestActivity,
   formatHomeTimer,
   HOME_STAGE_LABEL,
   homeThreadKey,
-  resolveOrchestratorThread,
-  selectHomeThreadRows,
+  homeThreadRow,
   quietLine,
+  resolveOrchestratorThread,
+  selectDeployQueue,
+  selectHomeThreadRows,
   selectRecentActivity,
-  selectShipQueue,
-  selectShipRequests,
-  SHIP_STATUS_LABEL,
+  selectShipEvents,
+  selectShippedToday,
   shipRequestText,
+  type DeployQueueEntry,
+  type DeployStatus,
   type HomeActivityEntry,
   type HomeStage,
   type HomeThreadRow,
-  type ShipQueueEntry,
-  type ShipStatus,
 } from "./orchestratorHome.logic";
 
 const STAGE_PILL: Record<HomeStage, string> = {
@@ -77,25 +77,17 @@ const STAGE_DOT: Record<HomeStage, string> = {
 const CARD = "orchestrator-home-card flex min-h-0 min-w-0 flex-col rounded-3xl border";
 const SUB = "rounded-xl border border-(--oh-sub-border) bg-(--oh-sub)";
 
-function greeting(nowMs: number): string {
-  const hour = new Date(nowMs).getHours();
-  return hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
-}
-
 function threadRefOf(thread: EnvironmentThreadShell): ScopedThreadRef {
   return scopeThreadRef(thread.environmentId, thread.id);
 }
 
+const PILL =
+  "inline-flex h-6.5 shrink-0 items-center rounded-full px-2.75 text-xs font-semibold whitespace-nowrap";
+
 function StagePill(props: { readonly stage: HomeStage }) {
+  const m = useMessages();
   return (
-    <span
-      className={cn(
-        "inline-flex h-6.5 shrink-0 items-center rounded-full px-2.75 text-xs font-semibold whitespace-nowrap",
-        STAGE_PILL[props.stage],
-      )}
-    >
-      {HOME_STAGE_LABEL[props.stage]}
-    </span>
+    <span className={cn(PILL, STAGE_PILL[props.stage])}>{m(HOME_STAGE_LABEL[props.stage])}</span>
   );
 }
 
@@ -142,30 +134,31 @@ function RowBody(props: RowProps & { readonly stage: HomeStage; readonly line: R
   );
 }
 
+function QuietRow(props: RowProps) {
+  const m = useMessages();
+  return <RowBody {...props} stage="quiet" line={quietLine(props.row.thread, m)} />;
+}
+
 /** What a blocked row is asking for; the thread list only says that it is asking. */
 function RequestRow(props: RowProps) {
-  const requests = useAtomValue(
-    environmentThreadDetails.pendingRequestsAtom(threadRefOf(props.row.thread)),
-  );
-  const approval = requests?.approvals[0];
-  const line =
-    approval !== undefined
-      ? `Approve: ${approval.detail ?? approval.reason ?? "a request"}`
-      : (requests?.userInputs[0]?.questions[0]?.question ?? "Waiting for your answer");
+  const gt = useGT();
+  const line = useThreadRequestLine(props.row.thread) ?? gt("Waiting for your answer");
   return <RowBody {...props} stage="needs-you" line={line} />;
 }
 
 /** Stage and line of a live row. Mounting it loads the thread, so quiet rows never do. */
 function ActivityRow(props: RowProps) {
   const { thread, state } = props.row;
+  const gt = useGT();
+  const m = useMessages();
   const items = useThreadVisibleTurnItems(threadRefOf(thread));
   if (state === "busy") {
-    const activity = describeLatestActivity(items);
+    const activity = describeLatestActivity(items, m);
     return (
       <RowBody
         {...props}
         stage={activity?.stage ?? "thinking"}
-        line={activity?.line ?? "Working"}
+        line={activity?.line ?? gt("Working", { $context: "an agent is busy" })}
       />
     );
   }
@@ -176,49 +169,91 @@ function ActivityRow(props: RowProps) {
       stage={failed ? "failed" : "ready"}
       line={
         failed
-          ? (thread.runtime?.lastError ?? "The run failed")
-          : (describeLastReply(items) ?? "Finished")
+          ? (thread.runtime?.lastError ?? gt("The run failed"))
+          : (describeLastReply(items) ?? gt("Finished", { $context: "an agent finished its run" }))
       }
     />
   );
 }
 
+interface ShipControl {
+  /** Thread keys already in the queue, or being asked for now. */
+  readonly requested: ReadonlySet<string>;
+  readonly request: (thread: EnvironmentThreadShell) => void;
+}
+
+/** Asks the orchestrator to merge and deploy a thread; it drives the thread and reports back. */
+function ShipButton(props: {
+  readonly thread: EnvironmentThreadShell;
+  readonly ship: ShipControl;
+}) {
+  if (props.ship.requested.has(homeThreadKey(props.thread))) return null;
+  return (
+    <Button
+      size="sm-pill"
+      data-orchestrator-ship=""
+      onClick={() => props.ship.request(props.thread)}
+    >
+      <T context="verb, release this work">Ship</T>
+    </Button>
+  );
+}
+
 function ThreadRow(
-  props: RowProps & { readonly onOpen: (thread: EnvironmentThreadShell) => void },
+  props: RowProps & {
+    readonly onOpen: (thread: EnvironmentThreadShell) => void;
+    /** Absent when there is no orchestrator to ask. */
+    readonly ship: ShipControl | null;
+  },
 ) {
   const { thread, state } = props.row;
   return (
-    <li>
+    <li className="flex items-center gap-2">
       <button
         type="button"
         data-orchestrator-thread-row={state}
         onClick={() => props.onOpen(thread)}
         className={cn(
           SUB,
-          "flex w-full cursor-pointer items-center gap-2.75 px-3.25 py-2.5 text-start outline-none hover:bg-(--oh-sub-hover) focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+          "flex min-w-0 flex-1 cursor-pointer items-center gap-2.75 px-3.25 py-2.5 text-start outline-none hover:bg-(--oh-sub-hover) focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
           state === "needs-you" &&
             "border-warning/30 bg-linear-to-r from-warning/12 to-(--oh-sub) to-50%",
         )}
       >
         {state === "quiet" ? (
-          <RowBody row={props.row} meta={props.meta} stage="quiet" line={quietLine(thread)} />
+          <QuietRow row={props.row} meta={props.meta} />
         ) : state === "needs-you" ? (
           <RequestRow row={props.row} meta={props.meta} />
         ) : (
           <ActivityRow row={props.row} meta={props.meta} />
         )}
       </button>
+      {state === "ready" && props.ship !== null ? (
+        <ShipButton thread={thread} ship={props.ship} />
+      ) : null}
     </li>
   );
 }
 
+/** A count that filters the thread list to what it counts; pressing it again clears the filter. */
 function StatTile(props: {
   readonly value: number;
   readonly label: string;
   readonly tone: string;
+  readonly pressed: boolean;
+  readonly onPress: () => void;
 }) {
   return (
-    <div className={cn(SUB, "flex flex-col gap-0.75 px-3.75 pt-2.75 pb-3")}>
+    <button
+      type="button"
+      aria-pressed={props.pressed}
+      onClick={props.onPress}
+      className={cn(
+        SUB,
+        "flex cursor-pointer flex-col gap-0.75 px-3.75 pt-2.75 pb-3 text-start outline-none hover:bg-(--oh-sub-hover) focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+        props.pressed && "border-foreground/45 bg-(--oh-sub-hover)",
+      )}
+    >
       <span
         className={cn(
           "text-2xl leading-tight font-semibold tracking-tight tabular-nums",
@@ -228,7 +263,7 @@ function StatTile(props: {
         {props.value}
       </span>
       <span className="text-xs text-muted-foreground">{props.label}</span>
-    </div>
+    </button>
   );
 }
 
@@ -266,165 +301,86 @@ function RecentActivityRow(props: {
   );
 }
 
-function ReadyLine(props: { readonly thread: EnvironmentThreadShell; readonly failed: boolean }) {
-  const items = useThreadVisibleTurnItems(threadRefOf(props.thread));
-  const line = props.failed
-    ? (props.thread.runtime?.lastError ?? "The run failed")
-    : (describeLastReply(items) ?? "Finished");
-  return <p className="min-w-0 flex-1 truncate text-xs text-foreground/70">{line}</p>;
-}
-
-function TriageItem(props: {
-  readonly row: HomeThreadRow;
-  readonly meta: string;
-  readonly onOpen: (thread: EnvironmentThreadShell) => void;
-  /** Absent when there is no orchestrator to ask. */
-  readonly ship: ShipControl | null;
-}) {
-  const { thread, state } = props.row;
-  const at =
-    state === "needs-you" ? thread.updatedAt : (thread.latestRun?.completedAt ?? thread.updatedAt);
-  return (
-    <li
-      data-orchestrator-triage={state}
-      className={cn(SUB, "flex flex-col gap-1.25 px-3.25 py-2.75")}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span
-          className={cn(
-            "inline-flex h-5.5 min-w-0 items-center gap-1.25 truncate rounded-full px-2.25 text-2xs font-medium",
-            STAGE_PILL[state === "busy" ? "thinking" : state],
-          )}
-        >
-          <span className="truncate">{props.meta}</span>
-          <span aria-hidden>·</span>
-          <span className="font-mono tabular-nums">
-            <ThreadTimer row={props.row} />
-          </span>
-        </span>
-        <span className="shrink-0 font-mono text-xs text-muted-foreground/70 tabular-nums">
-          <RelativeTime timestamp={at} />
-        </span>
-      </div>
-      <div className="flex items-center gap-2.5">
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
-          {thread.title}
-          <span className="ms-2 font-normal text-muted-foreground">
-            {HOME_STAGE_LABEL[state === "busy" ? "thinking" : state]}
-          </span>
-        </span>
-        {state === "ready" && props.ship !== null ? (
-          <ShipButton thread={thread} ship={props.ship} />
-        ) : null}
-        <Button size="sm-pill" variant="outline" onClick={() => props.onOpen(thread)}>
-          Open
-        </Button>
-      </div>
-      {state === "needs-you" ? (
-        <div className="-mx-2">
-          <NeedsYouRequest thread={thread} />
-        </div>
-      ) : (
-        <ReadyLine thread={thread} failed={state === "failed"} />
-      )}
-    </li>
-  );
-}
-
-interface ShipControl {
-  /** Thread keys already asked for, or being asked for now. */
-  readonly requested: ReadonlySet<string>;
-  readonly request: (thread: EnvironmentThreadShell) => void;
-}
-
-/** Asks the orchestrator to merge and deploy a thread; it drives the thread and reports back. */
-function ShipButton(props: {
-  readonly thread: EnvironmentThreadShell;
-  readonly ship: ShipControl;
-}) {
-  const requested = props.ship.requested.has(homeThreadKey(props.thread));
-  return (
-    <Button
-      size="sm-pill"
-      data-orchestrator-ship=""
-      disabled={requested}
-      onClick={() => props.ship.request(props.thread)}
-    >
-      {requested ? "Ship requested" : "Ship"}
-    </Button>
-  );
-}
-
-const SHIP_PILL: Record<ShipStatus, HomeStage> = {
+const DEPLOY_PILL: Record<DeployStatus, HomeStage> = {
   requested: "needs-you",
-  ready: "ready",
+  committed: "quiet",
+  pending: "code",
   checks: "checks",
   blocked: "failed",
   draft: "quiet",
   merged: "thinking",
+  deploying: "terminal",
+  live: "ready",
+  failed: "failed",
 };
 
-function ShipQueue(props: {
-  readonly entries: readonly ShipQueueEntry[];
-  readonly ship: ShipControl;
-  readonly onOpen: (thread: EnvironmentThreadShell) => void;
-}) {
-  if (props.entries.length === 0) {
-    return (
-      <p className="px-4.5 text-xs text-muted-foreground">
-        No open pull requests, and nothing shipped or asked to ship today.
-      </p>
-    );
-  }
+/** One line of timing: how long it has sat in this step, or when it went live and how long it took. */
+function DeployTiming(props: { readonly entry: DeployQueueEntry }) {
+  const { entry } = props;
+  const since = <RelativeTime timestamp={new Date(entry.at).toISOString()} />;
+  if (entry.status !== "live" || entry.at <= entry.startedAt) return since;
   return (
-    <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4.5 pb-4">
-      {props.entries.map((entry) => (
-        <li
-          key={homeThreadKey(entry.thread)}
-          data-orchestrator-ship-row={entry.status}
-          className={cn(SUB, "flex items-center gap-2.5 px-3.25 py-2.5")}
-        >
-          <span className="flex min-w-0 flex-1 flex-col gap-px">
-            <span className="truncate text-sm font-semibold text-foreground">
-              {entry.thread.title}
-            </span>
-            <span className="truncate text-2xs text-muted-foreground">
-              {entry.pullRequest ?? "No pull request yet"} · <RelativeTime timestamp={entry.at} />
-            </span>
-          </span>
-          <span
-            className={cn(
-              "inline-flex h-6.5 shrink-0 items-center rounded-full px-2.75 text-xs font-semibold whitespace-nowrap",
-              STAGE_PILL[SHIP_PILL[entry.status]],
-            )}
-          >
-            {SHIP_STATUS_LABEL[entry.status]}
-          </span>
-          {entry.status === "ready" ? <ShipButton thread={entry.thread} ship={props.ship} /> : null}
-          <Button size="sm-pill" variant="outline" onClick={() => props.onOpen(entry.thread)}>
-            Open
-          </Button>
-        </li>
-      ))}
-    </ul>
+    <T>
+      {since} · took <span>{formatHomeTimer(entry.at - entry.startedAt)}</span>
+    </T>
   );
 }
 
-type OrchestratorTab = "chat" | "ships" | "log";
+function DeployQueueRow(props: {
+  readonly entry: DeployQueueEntry;
+  readonly project: string | null;
+  readonly ship: ShipControl | null;
+  readonly onOpen: (thread: EnvironmentThreadShell) => void;
+}) {
+  const { entry } = props;
+  const m = useMessages();
+  const detail = [props.project, entry.pullRequest].filter((part) => part !== null).join(" · ");
+  return (
+    <li className="flex items-center gap-2" data-orchestrator-deploy-row={entry.status}>
+      <button
+        type="button"
+        onClick={() => props.onOpen(entry.thread)}
+        className={cn(
+          SUB,
+          "flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 px-3.25 py-2 text-start outline-none hover:bg-(--oh-sub-hover) focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+        )}
+      >
+        <span className="flex min-w-0 flex-1 flex-col gap-px">
+          <span className="truncate text-sm font-semibold text-foreground">
+            {entry.thread.title}
+          </span>
+          <span className="truncate text-2xs text-muted-foreground">{detail}</span>
+        </span>
+        <span className="shrink-0 text-2xs text-muted-foreground tabular-nums">
+          <DeployTiming entry={entry} />
+        </span>
+        <span className={cn(PILL, STAGE_PILL[DEPLOY_PILL[entry.status]])}>
+          {m(DEPLOY_STATUS_LABEL[entry.status])}
+        </span>
+      </button>
+      {entry.status === "pending" && props.ship !== null ? (
+        <ShipButton thread={entry.thread} ship={props.ship} />
+      ) : null}
+    </li>
+  );
+}
+
+type OrchestratorTab = "chat" | "log";
 const ORCHESTRATOR_TABS: ReadonlyArray<readonly [OrchestratorTab, string]> = [
-  ["chat", "Chat"],
-  ["ships", "Ships"],
-  ["log", "Log"],
+  ["chat", msg("Chat", { $context: "tab showing a conversation" })],
+  ["log", msg("Log", { $context: "tab listing recent activity" })],
 ];
 
 function OrchestratorTabs(props: {
   readonly tab: OrchestratorTab;
   readonly onChange: (tab: OrchestratorTab) => void;
 }) {
+  const gt = useGT();
+  const m = useMessages();
   return (
     <div
       role="tablist"
-      aria-label="Orchestrator views"
+      aria-label={gt("Orchestrator views")}
       className="flex shrink-0 items-center gap-1.25"
     >
       {ORCHESTRATOR_TABS.map(([tab, label]) => (
@@ -441,7 +397,7 @@ function OrchestratorTabs(props: {
               : "bg-foreground/8 text-foreground/80 hover:bg-foreground/14",
           )}
         >
-          {label}
+          {m(label)}
         </button>
       ))}
     </div>
@@ -480,14 +436,19 @@ function OrchestratorChat(props: {
   );
 }
 
+type ThreadFilter = "shipped" | "needs-you" | "running";
+
 export function OrchestratorHome() {
   const navigate = useNavigate();
+  const gt = useGT();
+  const m = useMessages();
   const threads = useVisibleThreadShells();
   const projects = useProjects();
   const providers = useEnvironmentProviders();
   const chosenKey = useClientSettings((settings) => settings.orchestratorThreadKey);
   // The rows only need the minute; each running timer keeps its own second.
   const nowMs = Math.floor(useNowSecond() / 60_000) * 60_000;
+  const hour = new Date(nowMs).getHours();
 
   const orchestrator = resolveOrchestratorThread(threads, projects, chosenKey);
   const rows = selectHomeThreadRows(
@@ -495,29 +456,31 @@ export function OrchestratorHome() {
     orchestrator === null ? null : homeThreadKey(orchestrator),
     nowMs,
   );
-  const triage = rows.filter((row) => row.state !== "busy" && row.state !== "quiet");
-  const activity = selectRecentActivity(threads, 2);
+  const needsYou = rows.filter((row) => row.state !== "busy" && row.state !== "quiet");
+  const running = rows.filter((row) => row.state === "busy");
 
   const [tab, setTab] = useState<OrchestratorTab>("chat");
+  const [filter, setFilter] = useState<ThreadFilter | null>(null);
+  const toggleFilter = (next: ThreadFilter) =>
+    setFilter((current) => (current === next ? null : next));
   const startTurn = useOrchestrationCommand(threadEnvironment.startTurn);
   // Covers the moment between the click and the message showing up in the orchestrator's chat.
   const [sending, setSending] = useState<ReadonlySet<string>>(new Set());
   const orchestratorItems = useThreadVisibleTurnItems(
     orchestrator === null ? null : threadRefOf(orchestrator),
   );
-  const shipRequests =
-    orchestrator === null
-      ? new Map<string, number>()
-      : selectShipRequests(orchestratorItems, orchestrator.environmentId);
-  const shipQueue = selectShipQueue(threads, shipRequests, nowMs);
+  const shipEvents =
+    orchestrator === null ? [] : selectShipEvents(orchestratorItems, orchestrator.environmentId);
+  const deployQueue = selectDeployQueue(threads, shipEvents, nowMs);
+  const shipped = selectShippedToday(threads, shipEvents, nowMs);
   const ship: ShipControl | null =
     orchestrator === null
       ? null
       : {
           requested: new Set([
             ...sending,
-            ...shipQueue
-              .filter((entry) => entry.status === "requested")
+            ...deployQueue
+              .filter((entry) => entry.status !== "pending")
               .map((entry) => homeThreadKey(entry.thread)),
           ]),
           request: (thread) => {
@@ -550,6 +513,8 @@ export function OrchestratorHome() {
   const projectTitles = new Map(
     projects.map((project) => [`${project.environmentId}:${project.id}`, project.title] as const),
   );
+  const projectOf = (thread: EnvironmentThreadShell) =>
+    projectTitles.get(`${thread.environmentId}:${thread.projectId}`) ?? null;
   const providerEntries = deriveProviderEntriesByEnvironment(
     [...providers].map(([environmentId, list]) => [environmentId, list] as const),
   );
@@ -561,8 +526,8 @@ export function OrchestratorHome() {
     const modelLabel = model
       ? getTriggerDisplayModelName(model, entry?.driverKind)
       : thread.modelSelection.model;
-    const project = projectTitles.get(`${thread.environmentId}:${thread.projectId}`);
-    return project === undefined ? modelLabel : `${project} · ${modelLabel}`;
+    const project = projectOf(thread);
+    return project === null ? modelLabel : `${project} · ${modelLabel}`;
   };
   const openThread = (thread: EnvironmentThreadShell) => {
     void navigate({
@@ -573,6 +538,15 @@ export function OrchestratorHome() {
   const projectCount = new Set(
     rows.map((row) => `${row.thread.environmentId}:${row.thread.projectId}`),
   ).size;
+  const shownRows =
+    filter === "needs-you"
+      ? needsYou
+      : filter === "running"
+        ? running
+        : filter === "shipped"
+          ? shipped.map(homeThreadRow)
+          : rows;
+  const activity = selectRecentActivity(threads, tab === "log" ? 40 : 2, m);
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden">
@@ -582,11 +556,11 @@ export function OrchestratorHome() {
       >
         <header className="drag-region relative flex shrink-0 items-center justify-center">
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-            {greeting(nowMs)}
+            {hour < 12 ? gt("Good morning") : hour < 18 ? gt("Good afternoon") : gt("Good evening")}
           </h1>
           <div className="absolute end-0 [-webkit-app-region:no-drag]">
             <Button size="sm-pill" variant="outline" render={<Link to="/settings/labs" />}>
-              Settings
+              <T>Settings</T>
             </Button>
           </div>
         </header>
@@ -594,23 +568,93 @@ export function OrchestratorHome() {
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-4.5 overflow-y-auto lg:grid-cols-2 lg:overflow-hidden">
           <div className="flex min-h-0 min-w-0 flex-col gap-4">
             <section
-              aria-label="Needs you"
+              aria-label={gt("Deploy queue")}
               className={cn(CARD, "max-h-[36%] shrink-0 px-4.5 py-4 max-lg:max-h-none")}
             >
               <div className="mb-3.25 flex shrink-0 items-center justify-between gap-3">
-                <h2 className="text-base font-semibold tracking-tight">Orchestrator · Needs you</h2>
+                <h2 className="text-base font-semibold tracking-tight">
+                  <T>Deploy queue</T>
+                </h2>
                 <span className="text-xs text-muted-foreground tabular-nums">
-                  {triage.length === 0 ? "All clear" : `${triage.length} waiting`}
+                  {gt(
+                    "{count, plural, =0 {Nothing in flight} one {{count} item} other {{count} items}}",
+                    {
+                      count: deployQueue.length,
+                    },
+                  )}
                 </span>
               </div>
-              {triage.length === 0 ? (
+              {deployQueue.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
-                  Nothing is waiting on you. Finished threads and requests show up here.
+                  <T>
+                    Open pull requests, merges and recorded deploys from the last day show up here.
+                  </T>
                 </p>
               ) : (
-                <ul className="-me-2 flex min-h-0 flex-col gap-2.25 overflow-y-auto pe-2">
-                  {triage.map((row) => (
-                    <TriageItem
+                <ul className="-me-2 flex min-h-0 flex-col gap-2 overflow-y-auto pe-2">
+                  {deployQueue.map((entry) => (
+                    <DeployQueueRow
+                      key={homeThreadKey(entry.thread)}
+                      entry={entry}
+                      project={projectOf(entry.thread)}
+                      ship={ship}
+                      onOpen={openThread}
+                    />
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            <section
+              aria-label={gt("Coding threads and output")}
+              className={cn(CARD, "flex-1 px-5 py-4.5")}
+            >
+              <div className="mb-3.25 flex shrink-0 items-center justify-between gap-3">
+                <h2 className="text-base font-semibold tracking-tight">
+                  <T>Coding Threads &amp; Output</T>
+                </h2>
+                <span className="text-xs whitespace-nowrap text-muted-foreground">
+                  {gt(
+                    "{count, plural, one {Today across {count} project} other {Today across {count} projects}}",
+                    { count: projectCount },
+                  )}
+                </span>
+              </div>
+              <div className="mb-3 grid shrink-0 grid-cols-3 gap-2.75">
+                <StatTile
+                  value={shipped.length}
+                  label={gt("Shipped today")}
+                  tone="text-emerald-600 dark:text-emerald-400"
+                  pressed={filter === "shipped"}
+                  onPress={() => toggleFilter("shipped")}
+                />
+                <StatTile
+                  value={needsYou.length}
+                  label={gt("Needs you")}
+                  tone="text-amber-600 dark:text-amber-400"
+                  pressed={filter === "needs-you"}
+                  onPress={() => toggleFilter("needs-you")}
+                />
+                <StatTile
+                  value={running.length}
+                  label={gt("Running now")}
+                  tone="text-blue-600 dark:text-blue-400"
+                  pressed={filter === "running"}
+                  onPress={() => toggleFilter("running")}
+                />
+              </div>
+              {shownRows.length === 0 ? (
+                <p className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+                  {filter === null ? (
+                    <T>No threads have been active in the last day.</T>
+                  ) : (
+                    <T>No threads match this filter.</T>
+                  )}
+                </p>
+              ) : (
+                <ul className="-me-2 flex min-h-24 flex-1 flex-col gap-2 overflow-y-auto pe-2 max-lg:max-h-96 max-lg:flex-none">
+                  {shownRows.map((row) => (
+                    <ThreadRow
                       key={homeThreadKey(row.thread)}
                       row={row}
                       meta={metaOf(row.thread)}
@@ -620,54 +664,7 @@ export function OrchestratorHome() {
                   ))}
                 </ul>
               )}
-            </section>
-
-            <section
-              aria-label="Coding threads and output"
-              className={cn(CARD, "flex-1 px-5 py-4.5")}
-            >
-              <div className="mb-3.25 flex shrink-0 items-center justify-between gap-3">
-                <h2 className="text-base font-semibold tracking-tight">
-                  Coding Threads &amp; Output
-                </h2>
-                <span className="text-xs whitespace-nowrap text-muted-foreground">
-                  Today across {projectCount} {projectCount === 1 ? "project" : "projects"}
-                </span>
-              </div>
-              <div className="mb-3 grid shrink-0 grid-cols-3 gap-2.75">
-                <StatTile
-                  value={countMergedToday(threads, nowMs)}
-                  label="Shipped today"
-                  tone="text-emerald-600 dark:text-emerald-400"
-                />
-                <StatTile
-                  value={triage.length}
-                  label="Needs you"
-                  tone="text-amber-600 dark:text-amber-400"
-                />
-                <StatTile
-                  value={rows.filter((row) => row.state === "busy").length}
-                  label="Running now"
-                  tone="text-blue-600 dark:text-blue-400"
-                />
-              </div>
-              {rows.length === 0 ? (
-                <p className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-                  No threads have been active in the last day.
-                </p>
-              ) : (
-                <ul className="-me-2 flex min-h-24 flex-1 flex-col gap-2 overflow-y-auto pe-2 max-lg:max-h-96 max-lg:flex-none">
-                  {rows.map((row) => (
-                    <ThreadRow
-                      key={homeThreadKey(row.thread)}
-                      row={row}
-                      meta={metaOf(row.thread)}
-                      onOpen={openThread}
-                    />
-                  ))}
-                </ul>
-              )}
-              {activity.length > 0 ? (
+              {tab !== "log" && activity.length > 0 ? (
                 <ul className="mt-3 flex shrink-0 flex-col gap-2 border-t border-(--oh-sub-border) pt-2.75">
                   {activity.map((entry) => (
                     <RecentActivityRow key={entry.key} entry={entry} onOpen={openThread} />
@@ -677,7 +674,7 @@ export function OrchestratorHome() {
             </section>
           </div>
           <section
-            aria-label="Orchestrator chat"
+            aria-label={gt("Orchestrator chat")}
             className={cn(CARD, "min-h-80 flex-1 overflow-hidden")}
           >
             <div className="flex shrink-0 items-center justify-between gap-3 px-4.5 pt-4 pb-2">
@@ -685,28 +682,26 @@ export function OrchestratorHome() {
                 <BotIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
                 <span className="truncate">
                   {orchestrator === null || /orchestrator/i.test(orchestrator.title)
-                    ? "Orchestrator"
-                    : `Orchestrator · ${orchestrator.title}`}
+                    ? gt("Orchestrator")
+                    : gt("Orchestrator · {title}", { title: orchestrator.title })}
                 </span>
               </h2>
               {orchestrator === null ? null : (
                 <div className="flex shrink-0 items-center gap-2">
                   <OrchestratorTabs tab={tab} onChange={setTab} />
                   <Button size="sm-pill" variant="outline" onClick={() => openThread(orchestrator)}>
-                    Open
+                    <T context="verb, opens a thread">Open</T>
                   </Button>
                 </div>
               )}
             </div>
-            {orchestrator === null || ship === null ? (
+            {orchestrator === null ? (
               <p className="px-4.5 text-xs text-muted-foreground">
-                Pin the thread you talk to, or choose one in Settings → Labs.
+                <T>Pin the thread you talk to, or choose one in Settings → Labs.</T>
               </p>
-            ) : tab === "ships" ? (
-              <ShipQueue entries={shipQueue} ship={ship} onOpen={openThread} />
             ) : tab === "log" ? (
               <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4.5 pb-4">
-                {selectRecentActivity(threads, 40).map((entry) => (
+                {activity.map((entry) => (
                   <RecentActivityRow key={entry.key} entry={entry} onOpen={openThread} />
                 ))}
               </ul>
