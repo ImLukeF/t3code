@@ -5,7 +5,7 @@ import {
   type EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/models";
 import type { ScopedThreadRef } from "@t3tools/contracts";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { T, useGT, useMessages } from "gt-react";
 import { CheckIcon, EllipsisIcon, type LucideIcon, PlayIcon, XIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
@@ -69,6 +69,7 @@ import {
   moveHomePanel,
   normalizeHomeLayout,
 } from "./homeLayout.logic";
+import { OrchestratorTopBar } from "./OrchestratorTopBar";
 
 const STAGE_PILL: Record<HomeStage, string> = {
   "needs-you": "bg-amber-500/20 text-amber-700 dark:text-amber-300",
@@ -534,7 +535,6 @@ export function OrchestratorHome() {
   const chosenKey = useClientSettings((settings) => settings.orchestratorThreadKey);
   // The rows only need the minute; each running timer keeps its own second.
   const nowMs = Math.floor(useNowSecond() / 60_000) * 60_000;
-  const hour = new Date(nowMs).getHours();
 
   const orchestrator = resolveOrchestratorThread(threads, projects, chosenKey);
   const rows = selectHomeThreadRows(
@@ -776,17 +776,13 @@ export function OrchestratorHome() {
         data-orchestrator-home=""
         className="orchestrator-home relative flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-4 pt-5.5 pb-6.5 lg:px-8"
       >
-        <header className="drag-region relative flex shrink-0 items-center justify-center">
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-            {hour < 12 ? gt("Good morning") : hour < 18 ? gt("Good afternoon") : gt("Good evening")}
-          </h1>
-          <div className="absolute end-0 flex items-center gap-2 [-webkit-app-region:no-drag]">
-            <PanelsMenu control={control} onReset={() => saveLayout(null)} />
-            <Button size="sm-pill" variant="outline" render={<Link to="/settings/labs" />}>
-              <T>Settings</T>
-            </Button>
-          </div>
-        </header>
+        <OrchestratorTopBar
+          now={nowMs}
+          running={running.length}
+          needsYou={needsYou.length}
+          readyToShip={deployQueue.filter((entry) => entry.status === "pending").length}
+          panels={<PanelsMenu control={control} onReset={() => saveLayout(null)} />}
+        />
 
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-4.5 overflow-y-auto lg:grid-cols-2 lg:overflow-hidden">
           {HOME_COLUMNS.map((column) => (
