@@ -434,8 +434,7 @@ function SidebarControl({
             render={<Link to="/" />}
           >
             <ArrowLeftIcon />
-            {/* oxlint-disable-next-line t3code/no-untranslated-copy -- T3 Luke fork screen, English only */}
-            Orchestrator
+            {gt("Orchestrator")}
           </Button>
         </div>
       ) : null}

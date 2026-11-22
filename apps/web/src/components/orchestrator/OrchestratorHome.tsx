@@ -6,7 +6,7 @@ import {
 } from "@t3tools/client-runtime/state/models";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { T, useGT, useMessages } from "gt-react";
+import { T, useGT, useMessages, Var } from "gt-react";
 import { CheckIcon, EllipsisIcon, type LucideIcon, PlayIcon, XIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
@@ -340,7 +340,7 @@ function DeployTiming(props: { readonly entry: DeployQueueEntry }) {
   if (entry.status !== "live" || entry.at <= entry.startedAt) return since;
   return (
     <T>
-      {since} · took <span>{formatHomeTimer(entry.at - entry.startedAt)}</span>
+      <Var>{since}</Var> · took <Var>{formatHomeTimer(entry.at - entry.startedAt)}</Var>
     </T>
   );
 }

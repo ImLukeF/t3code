@@ -59,23 +59,25 @@ export function LabsSettingsPanel() {
   );
 }
 
-/* oxlint-disable t3code/no-untranslated-copy -- T3 Luke fork screen, English only; keeps the generated catalogs matching upstream */
 const TOP_PINNED_THREAD = "pinned";
 
 function OrchestratorHomeRow() {
+  const gt = useGT();
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
   return (
     <SettingsRow
-      title="Orchestrator home"
-      description="Replace the sidebar with a home screen: every live thread, what needs you, and a chat with your orchestrator thread."
+      title={gt("Orchestrator home")}
+      description={gt(
+        "Replace the sidebar with a home screen of panels: your orchestrator chat, every live thread, the deploy queue and usage limits.",
+      )}
       control={
         <Switch
           checked={settings.orchestratorHomeEnabled}
           onCheckedChange={(checked) =>
             updateSettings({ orchestratorHomeEnabled: Boolean(checked) })
           }
-          aria-label="Orchestrator home"
+          aria-label={gt("Orchestrator home")}
         />
       }
     >
@@ -89,6 +91,7 @@ function OrchestratorHomeRow() {
 }
 
 function OrchestratorThreadRow() {
+  const gt = useGT();
   const chosenKey = useScopedSettings((settings) => settings.orchestratorThreadKey);
   const updateSettings = useUpdateScopedSettings();
   const candidates = selectOrchestratorCandidates(useVisibleThreadShells());
@@ -96,8 +99,8 @@ function OrchestratorThreadRow() {
   return (
     <SettingsRow
       className="px-0 py-2 sm:px-0"
-      title="Orchestrator thread"
-      description="The thread the home screen chats with."
+      title={gt("Orchestrator thread")}
+      description={gt("The thread the home screen chats with.")}
       control={
         <div className="w-56 min-w-0">
           <Select
@@ -107,11 +110,17 @@ function OrchestratorThreadRow() {
                 updateSettings({ orchestratorThreadKey: value === TOP_PINNED_THREAD ? "" : value });
             }}
           >
-            <SelectTrigger size="sm" className="w-full min-w-0" aria-label="Orchestrator thread">
-              <SelectValue>{chosen?.title ?? "Automatic (top pinned thread)"}</SelectValue>
+            <SelectTrigger
+              size="sm"
+              className="w-full min-w-0"
+              aria-label={gt("Orchestrator thread")}
+            >
+              <SelectValue>{chosen?.title ?? gt("Automatic (top pinned thread)")}</SelectValue>
             </SelectTrigger>
             <SelectPopup align="end" alignItemWithTrigger={false}>
-              <SelectItem value={TOP_PINNED_THREAD}>Automatic (top pinned thread)</SelectItem>
+              <SelectItem value={TOP_PINNED_THREAD}>
+                {gt("Automatic (top pinned thread)")}
+              </SelectItem>
               {candidates.map((thread) => (
                 <SelectItem key={homeThreadKey(thread)} value={homeThreadKey(thread)}>
                   {thread.title}
@@ -124,8 +133,6 @@ function OrchestratorThreadRow() {
     />
   );
 }
-
-/* oxlint-enable t3code/no-untranslated-copy */
 
 function BoringSidebarRow() {
   const searchableSetting = useSearchableSetting();
