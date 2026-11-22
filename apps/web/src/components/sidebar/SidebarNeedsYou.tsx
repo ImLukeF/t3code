@@ -1,3 +1,4 @@
+/* oxlint-disable t3code/no-untranslated-copy -- T3 Luke fork screen, English only; keeps the generated catalogs matching upstream */
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { ThreadPendingApproval } from "@t3tools/client-runtime/state/thread-requests";
@@ -159,7 +160,7 @@ export function SidebarRowRequest(props: { readonly thread: EnvironmentThreadShe
  * What the thread is waiting on, with Approve / Deny for approvals. Mounting this
  * subscribes to the thread's detail, so it only renders for threads in the list.
  */
-function NeedsYouRequest(props: { readonly thread: EnvironmentThreadShell }) {
+export function NeedsYouRequest(props: { readonly thread: EnvironmentThreadShell }) {
   const { thread } = props;
   const requests = useAtomValue(
     environmentThreadDetails.pendingRequestsAtom(scopeThreadRef(thread.environmentId, thread.id)),

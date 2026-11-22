@@ -1,6 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { useGT } from "gt-react";
 import * as Schema from "effect/Schema";
+import { ArrowLeftIcon } from "lucide-react";
 import {
   useEffect,
   useState,
@@ -8,7 +9,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { useLocation, useRouter, type AnyRouter } from "@tanstack/react-router";
+import { Link, useLocation, useRouter, type AnyRouter } from "@tanstack/react-router";
 
 import { moveWorkspaceFocus, workspaceAreaProps } from "../lib/workspaceFocus";
 import { isCommandPaletteOpen } from "../commandPaletteBus";
@@ -33,7 +34,7 @@ import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { cn, isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
-import { useEnvironmentIdentificationMode } from "../hooks/useSettings";
+import { useClientSettings, useEnvironmentIdentificationMode } from "../hooks/useSettings";
 import {
   PanelAnimationSuppressionProvider,
   usePanelAnimationSettings,
@@ -63,6 +64,7 @@ import {
   useSidebar,
   useSidebarVisibility,
 } from "./ui/sidebar";
+import { Button } from "./ui/button";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { registerCommands, registerMenuAction } from "../shortcuts/dispatcher";
 import { resolveThreadRouteRef } from "../threadRoutes";
@@ -314,10 +316,21 @@ function registerAppShellCommands(router: AnyRouter, shellElement: Element): () 
   };
 }
 
-function SidebarControl({ showSidebar }: { readonly showSidebar: boolean }) {
+function SidebarControl({
+  showSidebar,
+  orchestratorHome,
+}: {
+  readonly showSidebar: boolean;
+  readonly orchestratorHome: boolean;
+}) {
   const gt = useGT();
   const router = useRouter();
   const usagePageOpen = useLocation({ select: (location) => location.pathname === "/usage" });
+  // The home has no sidebar to return through, so every other page links back to it.
+  const showHomeLink = useLocation({
+    select: (location) =>
+      orchestratorHome && location.pathname !== "/" && !isAppModalPage(location.pathname),
+  });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const { toggleSidebar } = useSidebar();
   const mobileSidebarSheetMounted = useMobileSidebarSheetMounted();
@@ -412,6 +425,20 @@ function SidebarControl({ showSidebar }: { readonly showSidebar: boolean }) {
           side="bottom"
         />
       ) : null}
+      {showHomeLink ? (
+        <div className="pointer-events-auto [-webkit-app-region:no-drag]">
+          <Button
+            size="compact"
+            variant="ghost"
+            data-orchestrator-home-link=""
+            render={<Link to="/" />}
+          >
+            <ArrowLeftIcon />
+            {/* oxlint-disable-next-line t3code/no-untranslated-copy -- T3 Luke fork screen, English only */}
+            Orchestrator
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -424,6 +451,10 @@ export function AppSidebarLayout({
   showSidebar?: boolean;
 }) {
   const gt = useGT();
+  // The home replaces the sidebar; Welcome already runs without one.
+  const orchestratorHome =
+    useClientSettings((settings) => settings.orchestratorHomeEnabled) && showSidebar;
+  const sidebarShown = showSidebar && !orchestratorHome;
   const sidebarArea = workspaceAreaProps("sidebar", 0, gt("Threads"));
   const [sidebarRouteReveal] = useState<SidebarRouteReveal>(() => ({
     observedKey: null,
@@ -462,6 +493,10 @@ export function AppSidebarLayout({
     "--sidebar-width": `${clampThreadSidebarWidth(sidebarWidth, sidebarMinimumWidth, sidebarMaximumWidth)}px`,
     "--panel-animation-duration": `${panelAnimationDurationMs}ms`,
     ...windowControlsInsetStyle,
+    // Headers clear the "Orchestrator" link the way they clear the sidebar toggle.
+    ...(orchestratorHome
+      ? { "--workspace-titlebar-content-left": "calc(var(--workspace-controls-left) + 7.75rem)" }
+      : {}),
   } as CSSProperties;
 
   return (
@@ -471,8 +506,9 @@ export function AppSidebarLayout({
         data-panel-animations={routePanelAnimationsActive ? "true" : "false"}
         storageKey="chat_thread_sidebar_open"
         style={sidebarProviderStyle}
+        {...(orchestratorHome ? { "data-sidebar-state": "collapsed" } : {})}
       >
-        {showSidebar ? (
+        {sidebarShown ? (
           <>
             <SidebarBrandWidthProbe isElectron={isElectron} onWidthChange={setBrandWidth} />
             <Sidebar
@@ -501,7 +537,7 @@ export function AppSidebarLayout({
         ) : null}
         {children}
         <BackgroundThreadAnnouncer />
-        <SidebarControl showSidebar={showSidebar} />
+        <SidebarControl showSidebar={sidebarShown} orchestratorHome={orchestratorHome} />
         {isElectron ? <HistorySwipeNavigation /> : null}
       </SidebarProvider>
     </PanelAnimationSuppressionProvider>

@@ -548,6 +548,10 @@ export const ClientSettingsSchema = Schema.Struct({
   boringSidebarMultilineRows: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(false)),
   ),
+  // Replaces the sidebar with a home screen: every live thread beside one orchestrator thread's chat.
+  orchestratorHomeEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  // Scoped thread key of the orchestrator thread; empty means the top pinned thread.
+  orchestratorThreadKey: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   toolCallVisibility: ToolCallVisibility.pipe(
     Schema.withDecodingDefault(Effect.succeed("showAll" as const)),
   ),
@@ -2178,6 +2182,8 @@ export const ClientSettingsPatch = Schema.Struct({
   showSkillsInSlashMenu: Schema.optionalKey(Schema.Boolean),
   boringSidebarEnabled: Schema.optionalKey(Schema.Boolean),
   boringSidebarMultilineRows: Schema.optionalKey(Schema.Boolean),
+  orchestratorHomeEnabled: Schema.optionalKey(Schema.Boolean),
+  orchestratorThreadKey: Schema.optionalKey(Schema.String),
   toolCallVisibility: Schema.optionalKey(ToolCallVisibility),
   screenReaderAnnouncements: Schema.optionalKey(ScreenReaderAnnouncements),
   screenReaderWindowTitle: Schema.optionalKey(Schema.Boolean),
