@@ -413,6 +413,12 @@ export const VoiceTranscriptionDestination = Schema.Union([
 ]);
 export type VoiceTranscriptionDestination = typeof VoiceTranscriptionDestination.Type;
 
+export const OrchestratorHomeLayout = Schema.Struct({
+  left: Schema.Array(Schema.String),
+  right: Schema.Array(Schema.String),
+});
+export type OrchestratorHomeLayout = typeof OrchestratorHomeLayout.Type;
+
 export const ClientSettingsSchema = Schema.Struct({
   notificationMode: NotificationMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("off" as const)),
@@ -552,6 +558,11 @@ export const ClientSettingsSchema = Schema.Struct({
   orchestratorHomeEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   // Scoped thread key of the orchestrator thread; empty means the top pinned thread.
   orchestratorThreadKey: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  // Panel ids per column of the Orchestrator home; a panel in neither column is hidden. Open
+  // strings so new panels and downgrades need no migration. Null is the default layout.
+  orchestratorHomeLayout: Schema.NullOr(OrchestratorHomeLayout).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   toolCallVisibility: ToolCallVisibility.pipe(
     Schema.withDecodingDefault(Effect.succeed("showAll" as const)),
   ),
@@ -2184,6 +2195,7 @@ export const ClientSettingsPatch = Schema.Struct({
   boringSidebarMultilineRows: Schema.optionalKey(Schema.Boolean),
   orchestratorHomeEnabled: Schema.optionalKey(Schema.Boolean),
   orchestratorThreadKey: Schema.optionalKey(Schema.String),
+  orchestratorHomeLayout: Schema.optionalKey(Schema.NullOr(OrchestratorHomeLayout)),
   toolCallVisibility: Schema.optionalKey(ToolCallVisibility),
   screenReaderAnnouncements: Schema.optionalKey(ScreenReaderAnnouncements),
   screenReaderWindowTitle: Schema.optionalKey(Schema.Boolean),

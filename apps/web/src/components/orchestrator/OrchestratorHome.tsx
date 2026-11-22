@@ -6,13 +6,13 @@ import {
 } from "@t3tools/client-runtime/state/models";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { msg, T, useGT, useMessages } from "gt-react";
-import { BotIcon, CheckIcon, type LucideIcon, PlayIcon, XIcon } from "lucide-react";
+import { T, useGT, useMessages } from "gt-react";
+import { CheckIcon, EllipsisIcon, type LucideIcon, PlayIcon, XIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { ComposerHandleContext } from "~/composerHandleContext";
 import { useNowSecond } from "~/hooks/useNowSecond";
-import { useClientSettings } from "~/hooks/useSettings";
+import { updateClientSettings, useClientSettings } from "~/hooks/useSettings";
 import type { SideChatParentPanel } from "~/lib/sideChatPane";
 import { cn, newMessageId } from "~/lib/utils";
 import { deriveProviderEntriesByEnvironment } from "~/providerInstances";
@@ -28,6 +28,14 @@ import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { RelativeTime } from "../RelativeTime";
 import { useThreadRequestLine } from "../sidebar/SidebarNeedsYou";
 import { Button } from "../ui/button";
+import {
+  Menu,
+  MenuCheckboxItem,
+  MenuItem,
+  MenuPopup,
+  MenuSeparator,
+  MenuTrigger,
+} from "../ui/menu";
 import { SidebarInset } from "../ui/sidebar";
 import {
   DEPLOY_STATUS_LABEL,
@@ -51,6 +59,16 @@ import {
   type HomeStage,
   type HomeThreadRow,
 } from "./orchestratorHome.logic";
+import {
+  HOME_PANELS,
+  type HomeColumn,
+  type HomeLayout,
+  type HomePanelId,
+  type HomePanelMove,
+  homePanelMoves,
+  moveHomePanel,
+  normalizeHomeLayout,
+} from "./homeLayout.logic";
 
 const STAGE_PILL: Record<HomeStage, string> = {
   "needs-you": "bg-amber-500/20 text-amber-700 dark:text-amber-300",
@@ -365,44 +383,112 @@ function DeployQueueRow(props: {
   );
 }
 
-type OrchestratorTab = "chat" | "log";
-const ORCHESTRATOR_TABS: ReadonlyArray<readonly [OrchestratorTab, string]> = [
-  ["chat", msg("Chat", { $context: "tab showing a conversation" })],
-  ["log", msg("Log", { $context: "tab listing recent activity" })],
-];
+interface PanelControl {
+  readonly layout: HomeLayout;
+  readonly move: (id: HomePanelId, move: HomePanelMove) => void;
+}
 
-function OrchestratorTabs(props: {
-  readonly tab: OrchestratorTab;
-  readonly onChange: (tab: OrchestratorTab) => void;
+/** The frame every panel shares: a small header with its menu, and a body that scrolls itself. */
+function HomePanel(props: {
+  readonly id: HomePanelId;
+  readonly control: PanelControl;
+  readonly title?: string;
+  readonly count?: number;
+  /** Extra menu items, above the layout ones. */
+  readonly menu?: ReactNode;
+  /** The body runs edge to edge, as the chat does. */
+  readonly flush?: boolean;
+  readonly children: ReactNode;
 }) {
   const gt = useGT();
   const m = useMessages();
+  const title = props.title ?? m(HOME_PANELS[props.id]);
+  const moves = homePanelMoves(props.control.layout, props.id);
+  const move = (next: HomePanelMove) => () => props.control.move(props.id, next);
   return (
-    <div
-      role="tablist"
-      aria-label={gt("Orchestrator views")}
-      className="flex shrink-0 items-center gap-1.25"
+    <section
+      aria-label={title}
+      data-orchestrator-panel={props.id}
+      className={cn(CARD, "flex-1 overflow-hidden max-lg:min-h-96")}
     >
-      {ORCHESTRATOR_TABS.map(([tab, label]) => (
-        <button
-          key={tab}
-          type="button"
-          role="tab"
-          aria-selected={props.tab === tab}
-          onClick={() => props.onChange(tab)}
-          className={cn(
-            "inline-flex h-6.5 cursor-pointer items-center rounded-full px-2.5 text-2xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-            props.tab === tab
-              ? "bg-foreground font-semibold text-background"
-              : "bg-foreground/8 text-foreground/80 hover:bg-foreground/14",
-          )}
-        >
-          {m(label)}
-        </button>
-      ))}
-    </div>
+      <div className="flex shrink-0 items-center gap-2 py-2.5 ps-4.5 pe-2.5">
+        <h2 className="min-w-0 truncate text-sm font-semibold tracking-tight">{title}</h2>
+        {props.count === undefined ? null : (
+          <span className="text-xs text-muted-foreground tabular-nums">{props.count}</span>
+        )}
+        <div className="ms-auto">
+          <Menu>
+            <MenuTrigger
+              render={
+                <Button
+                  size="icon-xs"
+                  variant="ghost-muted"
+                  aria-label={gt("{panel} panel options", { panel: title })}
+                />
+              }
+            >
+              <EllipsisIcon />
+            </MenuTrigger>
+            <MenuPopup align="end">
+              {props.menu}
+              {props.menu === undefined ? null : <MenuSeparator />}
+              <MenuItem onClick={move("other-column")}>
+                <T>Move to the other column</T>
+              </MenuItem>
+              <MenuItem disabled={!moves.has("up")} onClick={move("up")}>
+                <T>Move up</T>
+              </MenuItem>
+              <MenuItem disabled={!moves.has("down")} onClick={move("down")}>
+                <T>Move down</T>
+              </MenuItem>
+              <MenuSeparator />
+              <MenuItem onClick={move("hide")}>
+                <T>Hide panel</T>
+              </MenuItem>
+            </MenuPopup>
+          </Menu>
+        </div>
+      </div>
+      <div className={cn("flex min-h-0 flex-1 flex-col", props.flush ? "" : "px-4.5 pb-4")}>
+        {props.children}
+      </div>
+    </section>
   );
 }
+
+/** Brings hidden panels back and resets the layout. */
+function PanelsMenu(props: { readonly control: PanelControl; readonly onReset: () => void }) {
+  const m = useMessages();
+  const { layout } = props.control;
+  return (
+    <Menu>
+      <MenuTrigger render={<Button size="sm-pill" variant="outline" />}>
+        <T>Panels</T>
+      </MenuTrigger>
+      <MenuPopup align="end">
+        {(Object.keys(HOME_PANELS) as HomePanelId[]).map((id) => {
+          const shown = layout.left.includes(id) || layout.right.includes(id);
+          return (
+            <MenuCheckboxItem
+              key={id}
+              checked={shown}
+              closeOnClick={false}
+              onCheckedChange={() => props.control.move(id, shown ? "hide" : "show")}
+            >
+              {m(HOME_PANELS[id])}
+            </MenuCheckboxItem>
+          );
+        })}
+        <MenuSeparator />
+        <MenuItem onClick={props.onReset}>
+          <T>Reset layout</T>
+        </MenuItem>
+      </MenuPopup>
+    </Menu>
+  );
+}
+
+const HOME_COLUMNS: readonly HomeColumn[] = ["left", "right"];
 
 /** The orchestrator thread's own chat and composer, as a side chat is shown in a panel. */
 function OrchestratorChat(props: {
@@ -459,7 +545,19 @@ export function OrchestratorHome() {
   const needsYou = rows.filter((row) => row.state !== "busy" && row.state !== "quiet");
   const running = rows.filter((row) => row.state === "busy");
 
-  const [tab, setTab] = useState<OrchestratorTab>("chat");
+  const layout = normalizeHomeLayout(
+    useClientSettings((settings) => settings.orchestratorHomeLayout),
+  );
+  const saveLayout = (next: HomeLayout | null) =>
+    void updateClientSettings({
+      orchestratorHomeLayout:
+        next === null ? null : { left: [...next.left], right: [...next.right] },
+    });
+  const control: PanelControl = {
+    layout,
+    move: (id, move) => saveLayout(moveHomePanel(layout, id, move)),
+  };
+  const logShown = layout.left.includes("log") || layout.right.includes("log");
   const [filter, setFilter] = useState<ThreadFilter | null>(null);
   const toggleFilter = (next: ThreadFilter) =>
     setFilter((current) => (current === next ? null : next));
@@ -535,9 +633,6 @@ export function OrchestratorHome() {
       params: buildThreadRouteParams(threadRefOf(thread)),
     });
   };
-  const projectCount = new Set(
-    rows.map((row) => `${row.thread.environmentId}:${row.thread.projectId}`),
-  ).size;
   const shownRows =
     filter === "needs-you"
       ? needsYou
@@ -546,7 +641,134 @@ export function OrchestratorHome() {
         : filter === "shipped"
           ? shipped.map(homeThreadRow)
           : rows;
-  const activity = selectRecentActivity(threads, tab === "log" ? 40 : 2, m);
+  const activity = logShown ? selectRecentActivity(threads, 60, m) : [];
+
+  const renderPanel = (id: HomePanelId) => {
+    switch (id) {
+      case "chat":
+        return (
+          <HomePanel
+            key={id}
+            id={id}
+            control={control}
+            flush
+            {...(orchestrator === null || /orchestrator/i.test(orchestrator.title)
+              ? { title: gt("Orchestrator") }
+              : { title: gt("Orchestrator · {title}", { title: orchestrator.title }) })}
+            {...(orchestrator === null
+              ? {}
+              : {
+                  menu: (
+                    <MenuItem onClick={() => openThread(orchestrator)}>
+                      <T>Open as a full thread</T>
+                    </MenuItem>
+                  ),
+                })}
+          >
+            {orchestrator === null ? (
+              <p className="px-4.5 text-xs text-muted-foreground">
+                <T>Pin the thread you talk to, or choose one in Settings → Labs.</T>
+              </p>
+            ) : (
+              <OrchestratorChat
+                key={homeThreadKey(orchestrator)}
+                thread={orchestrator}
+                onOpen={openThread}
+              />
+            )}
+          </HomePanel>
+        );
+      case "threads":
+        return (
+          <HomePanel key={id} id={id} control={control} count={rows.length}>
+            <div className="mb-3 grid shrink-0 grid-cols-3 gap-2.75">
+              <StatTile
+                value={shipped.length}
+                label={gt("Shipped today")}
+                tone="text-emerald-600 dark:text-emerald-400"
+                pressed={filter === "shipped"}
+                onPress={() => toggleFilter("shipped")}
+              />
+              <StatTile
+                value={needsYou.length}
+                label={gt("Needs you")}
+                tone="text-amber-600 dark:text-amber-400"
+                pressed={filter === "needs-you"}
+                onPress={() => toggleFilter("needs-you")}
+              />
+              <StatTile
+                value={running.length}
+                label={gt("Running now")}
+                tone="text-blue-600 dark:text-blue-400"
+                pressed={filter === "running"}
+                onPress={() => toggleFilter("running")}
+              />
+            </div>
+            {shownRows.length === 0 ? (
+              <p className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+                {filter === null ? (
+                  <T>No threads have been active in the last day.</T>
+                ) : (
+                  <T>No threads match this filter.</T>
+                )}
+              </p>
+            ) : (
+              <ul className="-me-2 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pe-2">
+                {shownRows.map((row) => (
+                  <ThreadRow
+                    key={homeThreadKey(row.thread)}
+                    row={row}
+                    meta={metaOf(row.thread)}
+                    onOpen={openThread}
+                    ship={ship}
+                  />
+                ))}
+              </ul>
+            )}
+          </HomePanel>
+        );
+      case "deploys":
+        return (
+          <HomePanel key={id} id={id} control={control} count={deployQueue.length}>
+            {deployQueue.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                <T>
+                  Open pull requests, merges and recorded deploys from the last day show up here.
+                </T>
+              </p>
+            ) : (
+              <ul className="-me-2 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pe-2">
+                {deployQueue.map((entry) => (
+                  <DeployQueueRow
+                    key={homeThreadKey(entry.thread)}
+                    entry={entry}
+                    project={projectOf(entry.thread)}
+                    ship={ship}
+                    onOpen={openThread}
+                  />
+                ))}
+              </ul>
+            )}
+          </HomePanel>
+        );
+      case "log":
+        return (
+          <HomePanel key={id} id={id} control={control}>
+            {activity.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                <T>Nothing has happened yet.</T>
+              </p>
+            ) : (
+              <ul className="-me-2 flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto pe-2">
+                {activity.map((entry) => (
+                  <RecentActivityRow key={entry.key} entry={entry} onOpen={openThread} />
+                ))}
+              </ul>
+            )}
+          </HomePanel>
+        );
+    }
+  };
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden">
@@ -558,7 +780,8 @@ export function OrchestratorHome() {
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
             {hour < 12 ? gt("Good morning") : hour < 18 ? gt("Good afternoon") : gt("Good evening")}
           </h1>
-          <div className="absolute end-0 [-webkit-app-region:no-drag]">
+          <div className="absolute end-0 flex items-center gap-2 [-webkit-app-region:no-drag]">
+            <PanelsMenu control={control} onReset={() => saveLayout(null)} />
             <Button size="sm-pill" variant="outline" render={<Link to="/settings/labs" />}>
               <T>Settings</T>
             </Button>
@@ -566,153 +789,16 @@ export function OrchestratorHome() {
         </header>
 
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-4.5 overflow-y-auto lg:grid-cols-2 lg:overflow-hidden">
-          <div className="flex min-h-0 min-w-0 flex-col gap-4">
-            <section
-              aria-label={gt("Deploy queue")}
-              className={cn(CARD, "max-h-[36%] shrink-0 px-4.5 py-4 max-lg:max-h-none")}
-            >
-              <div className="mb-3.25 flex shrink-0 items-center justify-between gap-3">
-                <h2 className="text-base font-semibold tracking-tight">
-                  <T>Deploy queue</T>
-                </h2>
-                <span className="text-xs text-muted-foreground tabular-nums">
-                  {gt(
-                    "{count, plural, =0 {Nothing in flight} one {{count} item} other {{count} items}}",
-                    {
-                      count: deployQueue.length,
-                    },
-                  )}
-                </span>
-              </div>
-              {deployQueue.length === 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  <T>
-                    Open pull requests, merges and recorded deploys from the last day show up here.
-                  </T>
+          {HOME_COLUMNS.map((column) => (
+            <div key={column} className="flex min-h-0 min-w-0 flex-col gap-4">
+              {layout[column].length === 0 ? (
+                <p className="flex flex-1 items-center justify-center rounded-3xl border border-dashed border-(--oh-card-border) text-xs text-muted-foreground max-lg:hidden">
+                  <T>This column is empty. Add panels from Panels.</T>
                 </p>
-              ) : (
-                <ul className="-me-2 flex min-h-0 flex-col gap-2 overflow-y-auto pe-2">
-                  {deployQueue.map((entry) => (
-                    <DeployQueueRow
-                      key={homeThreadKey(entry.thread)}
-                      entry={entry}
-                      project={projectOf(entry.thread)}
-                      ship={ship}
-                      onOpen={openThread}
-                    />
-                  ))}
-                </ul>
-              )}
-            </section>
-
-            <section
-              aria-label={gt("Coding threads and output")}
-              className={cn(CARD, "flex-1 px-5 py-4.5")}
-            >
-              <div className="mb-3.25 flex shrink-0 items-center justify-between gap-3">
-                <h2 className="text-base font-semibold tracking-tight">
-                  <T>Coding Threads &amp; Output</T>
-                </h2>
-                <span className="text-xs whitespace-nowrap text-muted-foreground">
-                  {gt(
-                    "{count, plural, one {Today across {count} project} other {Today across {count} projects}}",
-                    { count: projectCount },
-                  )}
-                </span>
-              </div>
-              <div className="mb-3 grid shrink-0 grid-cols-3 gap-2.75">
-                <StatTile
-                  value={shipped.length}
-                  label={gt("Shipped today")}
-                  tone="text-emerald-600 dark:text-emerald-400"
-                  pressed={filter === "shipped"}
-                  onPress={() => toggleFilter("shipped")}
-                />
-                <StatTile
-                  value={needsYou.length}
-                  label={gt("Needs you")}
-                  tone="text-amber-600 dark:text-amber-400"
-                  pressed={filter === "needs-you"}
-                  onPress={() => toggleFilter("needs-you")}
-                />
-                <StatTile
-                  value={running.length}
-                  label={gt("Running now")}
-                  tone="text-blue-600 dark:text-blue-400"
-                  pressed={filter === "running"}
-                  onPress={() => toggleFilter("running")}
-                />
-              </div>
-              {shownRows.length === 0 ? (
-                <p className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-                  {filter === null ? (
-                    <T>No threads have been active in the last day.</T>
-                  ) : (
-                    <T>No threads match this filter.</T>
-                  )}
-                </p>
-              ) : (
-                <ul className="-me-2 flex min-h-24 flex-1 flex-col gap-2 overflow-y-auto pe-2 max-lg:max-h-96 max-lg:flex-none">
-                  {shownRows.map((row) => (
-                    <ThreadRow
-                      key={homeThreadKey(row.thread)}
-                      row={row}
-                      meta={metaOf(row.thread)}
-                      onOpen={openThread}
-                      ship={ship}
-                    />
-                  ))}
-                </ul>
-              )}
-              {tab !== "log" && activity.length > 0 ? (
-                <ul className="mt-3 flex shrink-0 flex-col gap-2 border-t border-(--oh-sub-border) pt-2.75">
-                  {activity.map((entry) => (
-                    <RecentActivityRow key={entry.key} entry={entry} onOpen={openThread} />
-                  ))}
-                </ul>
               ) : null}
-            </section>
-          </div>
-          <section
-            aria-label={gt("Orchestrator chat")}
-            className={cn(CARD, "min-h-80 flex-1 overflow-hidden")}
-          >
-            <div className="flex shrink-0 items-center justify-between gap-3 px-4.5 pt-4 pb-2">
-              <h2 className="flex min-w-0 items-center gap-2 text-base font-semibold tracking-tight">
-                <BotIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-                <span className="truncate">
-                  {orchestrator === null || /orchestrator/i.test(orchestrator.title)
-                    ? gt("Orchestrator")
-                    : gt("Orchestrator · {title}", { title: orchestrator.title })}
-                </span>
-              </h2>
-              {orchestrator === null ? null : (
-                <div className="flex shrink-0 items-center gap-2">
-                  <OrchestratorTabs tab={tab} onChange={setTab} />
-                  <Button size="sm-pill" variant="outline" onClick={() => openThread(orchestrator)}>
-                    <T context="verb, opens a thread">Open</T>
-                  </Button>
-                </div>
-              )}
+              {layout[column].map(renderPanel)}
             </div>
-            {orchestrator === null ? (
-              <p className="px-4.5 text-xs text-muted-foreground">
-                <T>Pin the thread you talk to, or choose one in Settings → Labs.</T>
-              </p>
-            ) : tab === "log" ? (
-              <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4.5 pb-4">
-                {activity.map((entry) => (
-                  <RecentActivityRow key={entry.key} entry={entry} onOpen={openThread} />
-                ))}
-              </ul>
-            ) : (
-              <OrchestratorChat
-                key={homeThreadKey(orchestrator)}
-                thread={orchestrator}
-                onOpen={openThread}
-              />
-            )}
-          </section>
+          ))}
         </div>
       </div>
     </SidebarInset>
