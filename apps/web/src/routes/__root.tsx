@@ -43,7 +43,7 @@ import { StandalonePage, StandalonePageHeader } from "../components/ui/standalon
 import { SharedTooltipProvider } from "../components/ui/shared-tooltip";
 import { AnchoredToastProvider, ToastProvider } from "../components/ui/toast";
 import { isElectron } from "../env";
-import { getClientSettings, useClientSettings } from "../hooks/useSettings";
+import { useClientSettings } from "../hooks/useSettings";
 import {
   deriveLogicalProjectKeyFromSettings,
   derivePhysicalProjectKeyFromPath,
@@ -391,8 +391,7 @@ function EventRouter({
         );
       useUiStateStore.getState().setProjectExpanded(bootstrapProjectKey, true);
 
-      // The orchestrator home lives at "/", so it stays put.
-      if (readPathname() !== "/" || getClientSettings().orchestratorHomeEnabled) {
+      if (readPathname() !== "/") {
         return;
       }
       if (skipInitialBootstrapNavigationRef.current) {

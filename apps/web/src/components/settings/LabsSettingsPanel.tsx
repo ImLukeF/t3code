@@ -11,10 +11,6 @@ import { T, useGT, useMessages } from "gt-react";
 
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { useT3ConnectAuthPrompt } from "../clerk/useT3ConnectAuthPrompt";
-import {
-  homeThreadKey,
-  selectOrchestratorCandidates,
-} from "../orchestrator/orchestratorHome.logic";
 import { Button } from "../ui/button";
 import { NumberField, NumberFieldGroup, NumberFieldInput } from "../ui/number-field";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
@@ -35,7 +31,6 @@ import {
 } from "./useScopedSettings";
 import { useOptionalSettingsScope, useSettingsScope } from "./SettingsScopeContext";
 import { firstManagedDenial, usePrimaryManagedPolicy } from "~/state/managedPolicy";
-import { useVisibleThreadShells } from "~/state/entities";
 
 /** Features still settling in. */
 export function LabsSettingsPanel() {
@@ -43,7 +38,6 @@ export function LabsSettingsPanel() {
   return (
     <SettingsPageContainer>
       <SettingsSection id="beta" title={gt("Beta")}>
-        <OrchestratorHomeRow />
         <BoringSidebarRow />
         {/* Clerk is only mounted when this build has T3 Connect. */}
         {hasCloudPublicConfig() ? <GuestLinksRowWithSignIn /> : <GuestLinksRow />}
@@ -56,81 +50,6 @@ export function LabsSettingsPanel() {
         <AgentFeedbackRow />
       </SettingsSection>
     </SettingsPageContainer>
-  );
-}
-
-const TOP_PINNED_THREAD = "pinned";
-
-function OrchestratorHomeRow() {
-  const gt = useGT();
-  const settings = useScopedSettings();
-  const updateSettings = useUpdateScopedSettings();
-  return (
-    <SettingsRow
-      title={gt("Orchestrator home")}
-      description={gt(
-        "Replace the sidebar with a home screen of panels: your orchestrator chat, every live thread, the deploy queue and usage limits.",
-      )}
-      control={
-        <Switch
-          checked={settings.orchestratorHomeEnabled}
-          onCheckedChange={(checked) =>
-            updateSettings({ orchestratorHomeEnabled: Boolean(checked) })
-          }
-          aria-label={gt("Orchestrator home")}
-        />
-      }
-    >
-      {settings.orchestratorHomeEnabled ? (
-        <div className="mt-2 mb-2 border-l-2 border-border/60 ps-3">
-          <OrchestratorThreadRow />
-        </div>
-      ) : null}
-    </SettingsRow>
-  );
-}
-
-function OrchestratorThreadRow() {
-  const gt = useGT();
-  const chosenKey = useScopedSettings((settings) => settings.orchestratorThreadKey);
-  const updateSettings = useUpdateScopedSettings();
-  const candidates = selectOrchestratorCandidates(useVisibleThreadShells());
-  const chosen = candidates.find((thread) => homeThreadKey(thread) === chosenKey);
-  return (
-    <SettingsRow
-      className="px-0 py-2 sm:px-0"
-      title={gt("Orchestrator thread")}
-      description={gt("The thread the home screen chats with.")}
-      control={
-        <div className="w-56 min-w-0">
-          <Select
-            value={chosen === undefined ? TOP_PINNED_THREAD : chosenKey}
-            onValueChange={(value) => {
-              if (typeof value === "string")
-                updateSettings({ orchestratorThreadKey: value === TOP_PINNED_THREAD ? "" : value });
-            }}
-          >
-            <SelectTrigger
-              size="sm"
-              className="w-full min-w-0"
-              aria-label={gt("Orchestrator thread")}
-            >
-              <SelectValue>{chosen?.title ?? gt("Automatic (top pinned thread)")}</SelectValue>
-            </SelectTrigger>
-            <SelectPopup align="end" alignItemWithTrigger={false}>
-              <SelectItem value={TOP_PINNED_THREAD}>
-                {gt("Automatic (top pinned thread)")}
-              </SelectItem>
-              {candidates.map((thread) => (
-                <SelectItem key={homeThreadKey(thread)} value={homeThreadKey(thread)}>
-                  {thread.title}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
-        </div>
-      }
-    />
   );
 }
 
