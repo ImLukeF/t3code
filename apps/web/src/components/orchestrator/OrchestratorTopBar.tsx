@@ -8,9 +8,9 @@ import {
 } from "@t3tools/shared/usageLimits";
 import { formatResetsIn } from "@t3tools/shared/usageLimitsCopy";
 import type { RuntimeMode } from "@t3tools/contracts";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { T, useGT, useMessages } from "gt-react";
-import { SlidersHorizontalIcon } from "lucide-react";
+import { ChartNoAxesColumnIcon, SettingsIcon, SlidersHorizontalIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import {
@@ -20,9 +20,15 @@ import {
 } from "~/hooks/useSettings";
 import { readAppearanceModePreference, useTheme } from "~/hooks/useTheme";
 import { cn } from "~/lib/utils";
+import { useIssuesSupported, usePullRequestsSupported } from "~/state/environments";
 import { environmentPresentations } from "~/state/presentation";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { runtimeModeConfig, runtimeModeOptions } from "../chat/runtimeModeConfig";
+import { readIssueListPreferences } from "../issue/issueListPreferences";
+import { IssueGlyph } from "../issue/issuePresentation";
+import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
+import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
+import { SidebarUpdatePill } from "../sidebar/SidebarUpdatePill";
 import { Button } from "../ui/button";
 import {
   Menu,
@@ -35,6 +41,7 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "../ui/menu";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 const CHIP =
   "inline-flex h-7.5 shrink-0 items-center gap-2 rounded-full border border-(--oh-card-border) bg-(--oh-card) px-3 text-xs whitespace-nowrap text-foreground/85";
@@ -168,6 +175,70 @@ function QuickSettings() {
   );
 }
 
+function UtilityButton(props: {
+  readonly label: string;
+  readonly onClick: () => void;
+  readonly children: ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            size="icon-sm-pill"
+            variant="outline"
+            aria-label={props.label}
+            onClick={props.onClick}
+          />
+        }
+      >
+        {props.children}
+      </TooltipTrigger>
+      <TooltipPopup side="bottom">{props.label}</TooltipPopup>
+    </Tooltip>
+  );
+}
+
+/** The sidebar footer's buttons, which the home would otherwise hide along with the sidebar. */
+function UtilityButtons() {
+  const gt = useGT();
+  const navigate = useNavigate();
+  const pullRequestsSupported = usePullRequestsSupported();
+  const issuesSupported = useIssuesSupported();
+  return (
+    <>
+      <UtilityButton label={gt("Settings")} onClick={() => void navigate({ to: "/settings" })}>
+        <SettingsIcon />
+      </UtilityButton>
+      {pullRequestsSupported ? (
+        <UtilityButton
+          label={gt("Pull requests")}
+          onClick={() =>
+            void navigate({ to: "/pull-requests", search: readPullRequestListPreferences() })
+          }
+        >
+          <PullRequestGlyph.pullRequest />
+        </UtilityButton>
+      ) : null}
+      {issuesSupported ? (
+        <UtilityButton
+          label={gt("Issues", { $context: "sidebar link to the list of issues" })}
+          onClick={() => void navigate({ to: "/issues", search: readIssueListPreferences() })}
+        >
+          <IssueGlyph.issue />
+        </UtilityButton>
+      ) : null}
+      <UtilityButton label={gt("Usage")} onClick={() => void navigate({ to: "/usage" })}>
+        <ChartNoAxesColumnIcon />
+      </UtilityButton>
+      {/* The update button is a list item, as it is in the sidebar. */}
+      <ul className="flex items-center">
+        <SidebarUpdatePill />
+      </ul>
+    </>
+  );
+}
+
 /** One row above the panels: provider limits, live counts, and the home's own controls. */
 export function OrchestratorTopBar(props: {
   readonly now: number;
@@ -213,6 +284,7 @@ export function OrchestratorTopBar(props: {
         />
         {props.panels}
         <QuickSettings />
+        <UtilityButtons />
       </div>
     </header>
   );
