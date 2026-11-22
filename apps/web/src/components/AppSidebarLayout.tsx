@@ -499,6 +499,34 @@ export function AppSidebarLayout({
       : {}),
   } as CSSProperties;
 
+  const sidebar = (
+    <>
+      <SidebarBrandWidthProbe isElectron={isElectron} onWidthChange={setBrandWidth} />
+      <Sidebar
+        side="left"
+        collapsible="offcanvas"
+        data-app-sidebar=""
+        {...sidebarArea}
+        role="navigation"
+        aria-label={gt("Threads")}
+        resizable={{
+          collapseOnResize: true,
+          maxWidth: sidebarMaximumWidth,
+          minWidth: sidebarMinimumWidth,
+          shouldAcceptWidth: ({ currentWidth, nextWidth, wrapper }) =>
+            nextWidth <= currentWidth ||
+            wrapper.clientWidth - nextWidth >= THREAD_MAIN_CONTENT_MIN_WIDTH,
+          storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
+          onResize: setSidebarWidth,
+        }}
+        style={windowControlsInsetStyle}
+      >
+        <ThreadSidebar routeReveal={sidebarRouteReveal} />
+        <SidebarRail onDoubleClick={resetSidebarWidth} />
+      </Sidebar>
+    </>
+  );
+
   return (
     <PanelAnimationSuppressionProvider value={panelAnimationsSuppressed}>
       <SidebarProvider
@@ -508,33 +536,8 @@ export function AppSidebarLayout({
         style={sidebarProviderStyle}
         {...(orchestratorHome ? { "data-sidebar-state": "collapsed" } : {})}
       >
-        {sidebarShown ? (
-          <>
-            <SidebarBrandWidthProbe isElectron={isElectron} onWidthChange={setBrandWidth} />
-            <Sidebar
-              side="left"
-              collapsible="offcanvas"
-              data-app-sidebar=""
-              {...sidebarArea}
-              role="navigation"
-              aria-label={gt("Threads")}
-              resizable={{
-                collapseOnResize: true,
-                maxWidth: sidebarMaximumWidth,
-                minWidth: sidebarMinimumWidth,
-                shouldAcceptWidth: ({ currentWidth, nextWidth, wrapper }) =>
-                  nextWidth <= currentWidth ||
-                  wrapper.clientWidth - nextWidth >= THREAD_MAIN_CONTENT_MIN_WIDTH,
-                storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
-                onResize: setSidebarWidth,
-              }}
-              style={windowControlsInsetStyle}
-            >
-              <ThreadSidebar routeReveal={sidebarRouteReveal} />
-              <SidebarRail onDoubleClick={resetSidebarWidth} />
-            </Sidebar>
-          </>
-        ) : null}
+        {/* Hidden, not unmounted, under the home: the sidebar owns the thread shortcuts. */}
+        {orchestratorHome ? <div hidden>{sidebar}</div> : showSidebar ? sidebar : null}
         {children}
         <BackgroundThreadAnnouncer />
         <SidebarControl showSidebar={sidebarShown} orchestratorHome={orchestratorHome} />
