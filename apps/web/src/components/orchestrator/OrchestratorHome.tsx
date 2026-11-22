@@ -120,7 +120,7 @@ function RowBody(props: RowProps & { readonly stage: HomeStage; readonly line: R
   return (
     <>
       <span aria-hidden className={cn("size-2 shrink-0 rounded-full", STAGE_DOT[props.stage])} />
-      <span className="flex w-28 shrink-0 flex-col gap-px sm:w-44">
+      <span className="flex w-28 shrink-0 flex-col gap-px sm:w-40">
         <span className="truncate text-sm font-semibold text-foreground">
           {props.row.thread.title}
         </span>
@@ -364,7 +364,7 @@ export function OrchestratorHome() {
     nowMs,
   );
   const triage = rows.filter((row) => row.state !== "busy" && row.state !== "quiet");
-  const activity = selectRecentActivity(threads, 3);
+  const activity = selectRecentActivity(threads, 2);
   const projectTitles = new Map(
     projects.map((project) => [`${project.environmentId}:${project.id}`, project.title] as const),
   );
@@ -396,7 +396,7 @@ export function OrchestratorHome() {
     <SidebarInset className="h-dvh min-h-0 overflow-hidden">
       <div
         data-orchestrator-home=""
-        className="orchestrator-home relative flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-4 pt-5.5 pb-6.5 lg:px-13.5"
+        className="orchestrator-home relative flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-4 pt-5.5 pb-6.5 lg:px-8"
       >
         <header className="drag-region relative flex shrink-0 items-center justify-center">
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
@@ -409,62 +409,11 @@ export function OrchestratorHome() {
           </div>
         </header>
 
-        <div className="grid min-h-0 flex-1 grid-cols-1 gap-4.5 overflow-y-auto lg:grid-cols-[1.06fr_0.94fr] lg:overflow-hidden">
-          <section aria-label="Coding threads and output" className={cn(CARD, "px-5 py-4.5")}>
-            <div className="mb-3.25 flex shrink-0 items-center justify-between gap-3">
-              <h2 className="text-base font-semibold tracking-tight">
-                Coding Threads &amp; Output
-              </h2>
-              <span className="text-xs whitespace-nowrap text-muted-foreground">
-                Today across {projectCount} {projectCount === 1 ? "project" : "projects"}
-              </span>
-            </div>
-            <div className="mb-3 grid shrink-0 grid-cols-3 gap-2.75">
-              <StatTile
-                value={countMergedToday(threads, nowMs)}
-                label="Shipped today"
-                tone="text-emerald-600 dark:text-emerald-400"
-              />
-              <StatTile
-                value={triage.length}
-                label="Needs you"
-                tone="text-amber-600 dark:text-amber-400"
-              />
-              <StatTile
-                value={rows.filter((row) => row.state === "busy").length}
-                label="Running now"
-                tone="text-blue-600 dark:text-blue-400"
-              />
-            </div>
-            {rows.length === 0 ? (
-              <p className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-                No threads have been active in the last day.
-              </p>
-            ) : (
-              <ul className="-me-2 flex min-h-24 flex-1 flex-col gap-2 overflow-y-auto pe-2 max-lg:max-h-96 max-lg:flex-none">
-                {rows.map((row) => (
-                  <ThreadRow
-                    key={homeThreadKey(row.thread)}
-                    row={row}
-                    meta={metaOf(row.thread)}
-                    onOpen={openThread}
-                  />
-                ))}
-              </ul>
-            )}
-            {activity.length > 0 ? (
-              <ul className="mt-3 flex shrink-0 flex-col gap-2 border-t border-(--oh-sub-border) pt-2.75">
-                {activity.map((entry) => (
-                  <RecentActivityRow key={entry.key} entry={entry} onOpen={openThread} />
-                ))}
-              </ul>
-            ) : null}
-          </section>
-
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-4.5 overflow-y-auto lg:grid-cols-2 lg:overflow-hidden">
           <div className="flex min-h-0 min-w-0 flex-col gap-4">
             <section
               aria-label="Needs you"
-              className={cn(CARD, "max-h-[45%] shrink-0 px-4.5 py-4 max-lg:max-h-none")}
+              className={cn(CARD, "max-h-[36%] shrink-0 px-4.5 py-4 max-lg:max-h-none")}
             >
               <div className="mb-3.25 flex shrink-0 items-center justify-between gap-3">
                 <h2 className="text-base font-semibold tracking-tight">Orchestrator · Needs you</h2>
@@ -491,37 +440,90 @@ export function OrchestratorHome() {
             </section>
 
             <section
-              aria-label="Orchestrator chat"
-              className={cn(CARD, "orchestrator-home-chat min-h-80 flex-1 overflow-hidden")}
+              aria-label="Coding threads and output"
+              className={cn(CARD, "flex-1 px-5 py-4.5")}
             >
-              <div className="flex shrink-0 items-center justify-between gap-3 px-4.5 pt-4 pb-2">
-                <h2 className="flex min-w-0 items-center gap-2 text-base font-semibold tracking-tight">
-                  <BotIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-                  <span className="truncate">
-                    {orchestrator === null || /orchestrator/i.test(orchestrator.title)
-                      ? "Orchestrator"
-                      : `Orchestrator · ${orchestrator.title}`}
-                  </span>
+              <div className="mb-3.25 flex shrink-0 items-center justify-between gap-3">
+                <h2 className="text-base font-semibold tracking-tight">
+                  Coding Threads &amp; Output
                 </h2>
-                {orchestrator === null ? null : (
-                  <Button size="sm-pill" variant="outline" onClick={() => openThread(orchestrator)}>
-                    Open
-                  </Button>
-                )}
+                <span className="text-xs whitespace-nowrap text-muted-foreground">
+                  Today across {projectCount} {projectCount === 1 ? "project" : "projects"}
+                </span>
               </div>
-              {orchestrator === null ? (
-                <p className="px-4.5 text-xs text-muted-foreground">
-                  Pin the thread you talk to, or choose one in Settings → Labs.
+              <div className="mb-3 grid shrink-0 grid-cols-3 gap-2.75">
+                <StatTile
+                  value={countMergedToday(threads, nowMs)}
+                  label="Shipped today"
+                  tone="text-emerald-600 dark:text-emerald-400"
+                />
+                <StatTile
+                  value={triage.length}
+                  label="Needs you"
+                  tone="text-amber-600 dark:text-amber-400"
+                />
+                <StatTile
+                  value={rows.filter((row) => row.state === "busy").length}
+                  label="Running now"
+                  tone="text-blue-600 dark:text-blue-400"
+                />
+              </div>
+              {rows.length === 0 ? (
+                <p className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+                  No threads have been active in the last day.
                 </p>
               ) : (
-                <OrchestratorChat
-                  key={homeThreadKey(orchestrator)}
-                  thread={orchestrator}
-                  onOpen={openThread}
-                />
+                <ul className="-me-2 flex min-h-24 flex-1 flex-col gap-2 overflow-y-auto pe-2 max-lg:max-h-96 max-lg:flex-none">
+                  {rows.map((row) => (
+                    <ThreadRow
+                      key={homeThreadKey(row.thread)}
+                      row={row}
+                      meta={metaOf(row.thread)}
+                      onOpen={openThread}
+                    />
+                  ))}
+                </ul>
               )}
+              {activity.length > 0 ? (
+                <ul className="mt-3 flex shrink-0 flex-col gap-2 border-t border-(--oh-sub-border) pt-2.75">
+                  {activity.map((entry) => (
+                    <RecentActivityRow key={entry.key} entry={entry} onOpen={openThread} />
+                  ))}
+                </ul>
+              ) : null}
             </section>
           </div>
+          <section
+            aria-label="Orchestrator chat"
+            className={cn(CARD, "orchestrator-home-chat min-h-80 flex-1 overflow-hidden")}
+          >
+            <div className="flex shrink-0 items-center justify-between gap-3 px-4.5 pt-4 pb-2">
+              <h2 className="flex min-w-0 items-center gap-2 text-base font-semibold tracking-tight">
+                <BotIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+                <span className="truncate">
+                  {orchestrator === null || /orchestrator/i.test(orchestrator.title)
+                    ? "Orchestrator"
+                    : `Orchestrator · ${orchestrator.title}`}
+                </span>
+              </h2>
+              {orchestrator === null ? null : (
+                <Button size="sm-pill" variant="outline" onClick={() => openThread(orchestrator)}>
+                  Open
+                </Button>
+              )}
+            </div>
+            {orchestrator === null ? (
+              <p className="px-4.5 text-xs text-muted-foreground">
+                Pin the thread you talk to, or choose one in Settings → Labs.
+              </p>
+            ) : (
+              <OrchestratorChat
+                key={homeThreadKey(orchestrator)}
+                thread={orchestrator}
+                onOpen={openThread}
+              />
+            )}
+          </section>
         </div>
       </div>
     </SidebarInset>
