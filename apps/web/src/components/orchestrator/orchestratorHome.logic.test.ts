@@ -1,5 +1,6 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { OrchestrationV2ProjectedTurnItem } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -8,6 +9,9 @@ import {
   homeThreadKey,
   resolveOrchestratorThread,
   selectHomeThreadRows,
+  selectShipQueue,
+  selectShipRequests,
+  shipRequestText,
 } from "./orchestratorHome.logic";
 
 const items = (...list: ReadonlyArray<Record<string, unknown>>) =>
@@ -128,5 +132,59 @@ describe("formatHomeTimer", () => {
   it("pads minutes and adds hours once past one", () => {
     expect(formatHomeTimer(48_000)).toBe("00:48");
     expect(formatHomeTimer(3_725_000)).toBe("1:02:05");
+  });
+});
+
+describe("ship queue", () => {
+  const pr = (number: number, snapshot: Record<string, unknown>) => ({
+    number,
+    url: `https://example.invalid/pr/${number}`,
+    snapshot: { title: `PR ${number}`, isDraft: false, updatedAt: null, ...snapshot },
+  });
+  const withPr = (id: string, snapshot: Record<string, unknown>) =>
+    thread(id, { pullRequests: [pr(1, snapshot)] as never });
+
+  it("finds a ship request in the orchestrator's chat by the thread it links", () => {
+    const asked = thread("asked");
+    const requests = selectShipRequests(
+      items(
+        { type: "user_message", text: "please look at asked", updatedAt: DateTime.makeUnsafe(1) },
+        {
+          type: "user_message",
+          text: shipRequestText(asked),
+          updatedAt: DateTime.makeUnsafe(NOW),
+        },
+      ),
+      "env" as never,
+    );
+    expect([...requests]).toEqual([[homeThreadKey(asked), NOW]]);
+  });
+
+  it("orders requested, ready, running checks and blocked, and settles a request on merge", () => {
+    const requested = thread("requested");
+    const shipped = withPr("shipped", { state: "merged", mergedAt: "2026-01-01T11:00:00.000Z" });
+    const queue = selectShipQueue(
+      [
+        withPr("conflict", { state: "open", mergeability: "conflicting" }),
+        withPr("pending", { state: "open", checksState: "pending" }),
+        withPr("green", { state: "open", checksState: "passing" }),
+        withPr("old-merge", { state: "merged", mergedAt: "2025-12-01T00:00:00.000Z" }),
+        shipped,
+        requested,
+        thread("no-pr"),
+      ],
+      new Map([
+        [homeThreadKey(requested), NOW - 60_000],
+        [homeThreadKey(shipped), NOW - 60_000],
+      ]),
+      NOW,
+    );
+    expect(queue.map((entry) => [entry.thread.id, entry.status])).toEqual([
+      ["requested", "requested"],
+      ["green", "ready"],
+      ["pending", "checks"],
+      ["conflict", "blocked"],
+      ["shipped", "merged"],
+    ]);
   });
 });

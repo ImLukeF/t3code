@@ -5,7 +5,13 @@ import type {
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/models";
 import { liveThoughtLine } from "@t3tools/client-runtime/work-log/presentation";
-import { isListedThreadLineage, type OrchestrationV2ProjectedTurnItem } from "@t3tools/contracts";
+import {
+  isListedThreadLineage,
+  type EnvironmentId,
+  type OrchestrationV2ProjectedTurnItem,
+} from "@t3tools/contracts";
+import { formatThreadLink, threadLinkRefs } from "@t3tools/shared/threadLinks";
+import * as DateTime from "effect/DateTime";
 
 import { hasUnseenCompletion, resolveSidebarRowStatus } from "../Sidebar.logic";
 
@@ -343,4 +349,104 @@ export function formatHomeTimer(durationMs: number): string {
   return hours > 0
     ? `${hours}:${String(minutes).padStart(2, "0")}:${seconds}`
     : `${String(minutes).padStart(2, "0")}:${seconds}`;
+}
+
+const SHIP_REQUEST_PREFIX = "Ship request:";
+
+/** The message Ship sends the orchestrator. Its opening words are how the queue finds it again. */
+export function shipRequestText(thread: EnvironmentThreadShell): string {
+  const link = formatThreadLink(
+    { environmentId: thread.environmentId, threadId: thread.id },
+    thread.title,
+  );
+  return `${SHIP_REQUEST_PREFIX} merge and deploy ${link}, then report back here once it is live or if anything blocks it.`;
+}
+
+/** When each thread's ship was last asked for, by thread key, read from the orchestrator's chat. */
+export function selectShipRequests(
+  items: ReadonlyArray<OrchestrationV2ProjectedTurnItem>,
+  environmentId: EnvironmentId,
+): ReadonlyMap<string, number> {
+  const requests = new Map<string, number>();
+  for (const { item } of items) {
+    if (item.type !== "user_message" || !item.text.startsWith(SHIP_REQUEST_PREFIX)) continue;
+    for (const ref of threadLinkRefs(item.text, environmentId)) {
+      requests.set(scopedThreadKey(ref), DateTime.toEpochMillis(item.updatedAt));
+    }
+  }
+  return requests;
+}
+
+export type ShipStatus = "requested" | "ready" | "checks" | "blocked" | "draft" | "merged";
+
+export const SHIP_STATUS_LABEL: Record<ShipStatus, string> = {
+  requested: "Ship requested",
+  ready: "Ready to ship",
+  checks: "Checks running",
+  blocked: "Blocked",
+  draft: "Draft",
+  merged: "Merged",
+};
+
+export interface ShipQueueEntry {
+  readonly thread: EnvironmentThreadShell;
+  readonly status: ShipStatus;
+  /** The pull request's number and title, when the thread has one. */
+  readonly pullRequest: string | null;
+  readonly at: string;
+}
+
+const SHIP_ORDER: Record<ShipStatus, number> = {
+  requested: 0,
+  ready: 1,
+  checks: 2,
+  blocked: 3,
+  draft: 4,
+  merged: 5,
+};
+
+/**
+ * What can be known about shipping without deploy tracking: each thread's newest pull request
+ * (open, or merged today) and the threads a ship was asked for. A merge settles a request.
+ */
+export function selectShipQueue(
+  threads: readonly EnvironmentThreadShell[],
+  requests: ReadonlyMap<string, number>,
+  nowMs: number,
+): readonly ShipQueueEntry[] {
+  const entries: ShipQueueEntry[] = [];
+  for (const thread of threads) {
+    if (!isHomeThread(thread)) continue;
+    const link = thread.pullRequests.findLast((candidate) => candidate.snapshot !== null);
+    const snapshot = link?.snapshot ?? null;
+    const pullRequest =
+      link === undefined || snapshot === null ? null : `#${link.number} ${snapshot.title}`;
+    const requestedAt = requests.get(homeThreadKey(thread));
+    if (snapshot?.state === "merged") {
+      if (!isSameLocalDay(snapshot.mergedAt, nowMs) || snapshot.mergedAt == null) continue;
+      entries.push({ thread, status: "merged", pullRequest, at: snapshot.mergedAt });
+      continue;
+    }
+    if (requestedAt !== undefined && nowMs - requestedAt < QUIET_WINDOW_MS) {
+      entries.push({
+        thread,
+        status: "requested",
+        pullRequest,
+        at: new Date(requestedAt).toISOString(),
+      });
+      continue;
+    }
+    if (snapshot === null || snapshot.state !== "open") continue;
+    const status: ShipStatus = snapshot.isDraft
+      ? "draft"
+      : snapshot.checksState === "failing" || snapshot.mergeability === "conflicting"
+        ? "blocked"
+        : snapshot.checksState === "pending"
+          ? "checks"
+          : "ready";
+    entries.push({ thread, status, pullRequest, at: snapshot.updatedAt ?? thread.updatedAt });
+  }
+  return entries.toSorted(
+    (a, b) => SHIP_ORDER[a.status] - SHIP_ORDER[b.status] || b.at.localeCompare(a.at),
+  );
 }

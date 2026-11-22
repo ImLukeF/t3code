@@ -9,17 +9,18 @@ import {
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { BotIcon, CheckIcon, type LucideIcon, PlayIcon, XIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { ComposerHandleContext } from "~/composerHandleContext";
 import { useNowSecond } from "~/hooks/useNowSecond";
 import { useClientSettings } from "~/hooks/useSettings";
 import type { SideChatParentPanel } from "~/lib/sideChatPane";
-import { cn } from "~/lib/utils";
+import { cn, newMessageId } from "~/lib/utils";
 import { deriveProviderEntriesByEnvironment } from "~/providerInstances";
 import { useProjects, useThreadVisibleTurnItems, useVisibleThreadShells } from "~/state/entities";
 import { useEnvironmentProviders } from "~/state/environments";
-import { environmentThreadDetails } from "~/state/threads";
+import { environmentThreadDetails, threadEnvironment } from "~/state/threads";
+import { useOrchestrationCommand } from "~/state/use-orchestration-command";
 import { buildThreadRouteParams } from "~/threadRoutes";
 import ChatView from "../ChatView";
 import { BackgroundThreadContext } from "../chat/backgroundThread";
@@ -40,9 +41,15 @@ import {
   selectHomeThreadRows,
   quietLine,
   selectRecentActivity,
+  selectShipQueue,
+  selectShipRequests,
+  SHIP_STATUS_LABEL,
+  shipRequestText,
   type HomeActivityEntry,
   type HomeStage,
   type HomeThreadRow,
+  type ShipQueueEntry,
+  type ShipStatus,
 } from "./orchestratorHome.logic";
 
 const STAGE_PILL: Record<HomeStage, string> = {
@@ -271,6 +278,8 @@ function TriageItem(props: {
   readonly row: HomeThreadRow;
   readonly meta: string;
   readonly onOpen: (thread: EnvironmentThreadShell) => void;
+  /** Absent when there is no orchestrator to ask. */
+  readonly ship: ShipControl | null;
 }) {
   const { thread, state } = props.row;
   const at =
@@ -304,6 +313,9 @@ function TriageItem(props: {
             {HOME_STAGE_LABEL[state === "busy" ? "thinking" : state]}
           </span>
         </span>
+        {state === "ready" && props.ship !== null ? (
+          <ShipButton thread={thread} ship={props.ship} />
+        ) : null}
         <Button size="sm-pill" variant="outline" onClick={() => props.onOpen(thread)}>
           Open
         </Button>
@@ -316,6 +328,123 @@ function TriageItem(props: {
         <ReadyLine thread={thread} failed={state === "failed"} />
       )}
     </li>
+  );
+}
+
+interface ShipControl {
+  /** Thread keys already asked for, or being asked for now. */
+  readonly requested: ReadonlySet<string>;
+  readonly request: (thread: EnvironmentThreadShell) => void;
+}
+
+/** Asks the orchestrator to merge and deploy a thread; it drives the thread and reports back. */
+function ShipButton(props: {
+  readonly thread: EnvironmentThreadShell;
+  readonly ship: ShipControl;
+}) {
+  const requested = props.ship.requested.has(homeThreadKey(props.thread));
+  return (
+    <Button
+      size="sm-pill"
+      data-orchestrator-ship=""
+      disabled={requested}
+      onClick={() => props.ship.request(props.thread)}
+    >
+      {requested ? "Ship requested" : "Ship"}
+    </Button>
+  );
+}
+
+const SHIP_PILL: Record<ShipStatus, HomeStage> = {
+  requested: "needs-you",
+  ready: "ready",
+  checks: "checks",
+  blocked: "failed",
+  draft: "quiet",
+  merged: "thinking",
+};
+
+function ShipQueue(props: {
+  readonly entries: readonly ShipQueueEntry[];
+  readonly ship: ShipControl;
+  readonly onOpen: (thread: EnvironmentThreadShell) => void;
+}) {
+  if (props.entries.length === 0) {
+    return (
+      <p className="px-4.5 text-xs text-muted-foreground">
+        No open pull requests, and nothing shipped or asked to ship today.
+      </p>
+    );
+  }
+  return (
+    <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4.5 pb-4">
+      {props.entries.map((entry) => (
+        <li
+          key={homeThreadKey(entry.thread)}
+          data-orchestrator-ship-row={entry.status}
+          className={cn(SUB, "flex items-center gap-2.5 px-3.25 py-2.5")}
+        >
+          <span className="flex min-w-0 flex-1 flex-col gap-px">
+            <span className="truncate text-sm font-semibold text-foreground">
+              {entry.thread.title}
+            </span>
+            <span className="truncate text-2xs text-muted-foreground">
+              {entry.pullRequest ?? "No pull request yet"} · <RelativeTime timestamp={entry.at} />
+            </span>
+          </span>
+          <span
+            className={cn(
+              "inline-flex h-6.5 shrink-0 items-center rounded-full px-2.75 text-xs font-semibold whitespace-nowrap",
+              STAGE_PILL[SHIP_PILL[entry.status]],
+            )}
+          >
+            {SHIP_STATUS_LABEL[entry.status]}
+          </span>
+          {entry.status === "ready" ? <ShipButton thread={entry.thread} ship={props.ship} /> : null}
+          <Button size="sm-pill" variant="outline" onClick={() => props.onOpen(entry.thread)}>
+            Open
+          </Button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+type OrchestratorTab = "chat" | "ships" | "log";
+const ORCHESTRATOR_TABS: ReadonlyArray<readonly [OrchestratorTab, string]> = [
+  ["chat", "Chat"],
+  ["ships", "Ships"],
+  ["log", "Log"],
+];
+
+function OrchestratorTabs(props: {
+  readonly tab: OrchestratorTab;
+  readonly onChange: (tab: OrchestratorTab) => void;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Orchestrator views"
+      className="flex shrink-0 items-center gap-1.25"
+    >
+      {ORCHESTRATOR_TABS.map(([tab, label]) => (
+        <button
+          key={tab}
+          type="button"
+          role="tab"
+          aria-selected={props.tab === tab}
+          onClick={() => props.onChange(tab)}
+          className={cn(
+            "inline-flex h-6.5 cursor-pointer items-center rounded-full px-2.5 text-2xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+            props.tab === tab
+              ? "bg-foreground font-semibold text-background"
+              : "bg-foreground/8 text-foreground/80 hover:bg-foreground/14",
+          )}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -333,7 +462,10 @@ function OrchestratorChat(props: {
     runShellCommand: () => onOpen(thread),
   };
   return (
-    <div data-side-chat-pane={thread.id} className="flex min-h-0 flex-1 flex-col">
+    <div
+      data-side-chat-pane={thread.id}
+      className="orchestrator-home-chat flex min-h-0 flex-1 flex-col"
+    >
       <BackgroundThreadContext value>
         <ComposerHandleContext value={null}>
           <ChatView
@@ -365,6 +497,56 @@ export function OrchestratorHome() {
   );
   const triage = rows.filter((row) => row.state !== "busy" && row.state !== "quiet");
   const activity = selectRecentActivity(threads, 2);
+
+  const [tab, setTab] = useState<OrchestratorTab>("chat");
+  const startTurn = useOrchestrationCommand(threadEnvironment.startTurn);
+  // Covers the moment between the click and the message showing up in the orchestrator's chat.
+  const [sending, setSending] = useState<ReadonlySet<string>>(new Set());
+  const orchestratorItems = useThreadVisibleTurnItems(
+    orchestrator === null ? null : threadRefOf(orchestrator),
+  );
+  const shipRequests =
+    orchestrator === null
+      ? new Map<string, number>()
+      : selectShipRequests(orchestratorItems, orchestrator.environmentId);
+  const shipQueue = selectShipQueue(threads, shipRequests, nowMs);
+  const ship: ShipControl | null =
+    orchestrator === null
+      ? null
+      : {
+          requested: new Set([
+            ...sending,
+            ...shipQueue
+              .filter((entry) => entry.status === "requested")
+              .map((entry) => homeThreadKey(entry.thread)),
+          ]),
+          request: (thread) => {
+            const key = homeThreadKey(thread);
+            setSending((current) => new Set(current).add(key));
+            void startTurn({
+              environmentId: orchestrator.environmentId,
+              input: {
+                threadId: orchestrator.id,
+                message: {
+                  messageId: newMessageId(),
+                  role: "user",
+                  text: shipRequestText(thread),
+                  attachments: [],
+                },
+                runtimeMode: orchestrator.runtimeMode,
+                interactionMode: orchestrator.interactionMode,
+                // A busy orchestrator takes the request once its current turn ends.
+                dispatchMode: "queue",
+              },
+            }).then(() =>
+              setSending((current) => {
+                const next = new Set(current);
+                next.delete(key);
+                return next;
+              }),
+            );
+          },
+        };
   const projectTitles = new Map(
     projects.map((project) => [`${project.environmentId}:${project.id}`, project.title] as const),
   );
@@ -433,6 +615,7 @@ export function OrchestratorHome() {
                       row={row}
                       meta={metaOf(row.thread)}
                       onOpen={openThread}
+                      ship={ship}
                     />
                   ))}
                 </ul>
@@ -495,7 +678,7 @@ export function OrchestratorHome() {
           </div>
           <section
             aria-label="Orchestrator chat"
-            className={cn(CARD, "orchestrator-home-chat min-h-80 flex-1 overflow-hidden")}
+            className={cn(CARD, "min-h-80 flex-1 overflow-hidden")}
           >
             <div className="flex shrink-0 items-center justify-between gap-3 px-4.5 pt-4 pb-2">
               <h2 className="flex min-w-0 items-center gap-2 text-base font-semibold tracking-tight">
@@ -507,15 +690,26 @@ export function OrchestratorHome() {
                 </span>
               </h2>
               {orchestrator === null ? null : (
-                <Button size="sm-pill" variant="outline" onClick={() => openThread(orchestrator)}>
-                  Open
-                </Button>
+                <div className="flex shrink-0 items-center gap-2">
+                  <OrchestratorTabs tab={tab} onChange={setTab} />
+                  <Button size="sm-pill" variant="outline" onClick={() => openThread(orchestrator)}>
+                    Open
+                  </Button>
+                </div>
               )}
             </div>
-            {orchestrator === null ? (
+            {orchestrator === null || ship === null ? (
               <p className="px-4.5 text-xs text-muted-foreground">
                 Pin the thread you talk to, or choose one in Settings → Labs.
               </p>
+            ) : tab === "ships" ? (
+              <ShipQueue entries={shipQueue} ship={ship} onOpen={openThread} />
+            ) : tab === "log" ? (
+              <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4.5 pb-4">
+                {selectRecentActivity(threads, 40).map((entry) => (
+                  <RecentActivityRow key={entry.key} entry={entry} onOpen={openThread} />
+                ))}
+              </ul>
             ) : (
               <OrchestratorChat
                 key={homeThreadKey(orchestrator)}
